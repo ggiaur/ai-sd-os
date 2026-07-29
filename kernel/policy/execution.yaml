@@ -1,0 +1,5 @@
+execution:
+  max_retries: 3
+  timeout_seconds: 1800
+  token_budget_per_sprint: 500000
+  auto_checkpoint: true

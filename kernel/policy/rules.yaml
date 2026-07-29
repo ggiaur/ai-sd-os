@@ -1,0 +1,16 @@
+require_human_gates:
+  - "SPRINT_PLANNING"
+  - "SPRINT_REVIEW"
+  - "BLOCKED"
+  - "DESTRUCTIVE_ACTION"
+
+constitutional_rules:
+  - id: "RULE-001"
+    name: "No code without spec and workpackage"
+    enforce: true
+  - id: "RULE-002"
+    name: "Requirement mapping required"
+    enforce: true
+  - id: "RULE-003"
+    name: "L0 Human override supreme"
+    enforce: true

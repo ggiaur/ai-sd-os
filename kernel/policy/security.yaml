@@ -1,0 +1,17 @@
+secret_scan:
+  enabled: true
+  patterns:
+    - "sk-ant-[a-zA-Z0-9_-]+"
+    - "sk-[a-zA-Z0-9]{32,}"
+    - "ghp_[a-zA-Z0-9]{36}"
+    - "AKIA[0-9A-Z]{16}"
+    - "-----BEGIN PRIVATE KEY-----"
+
+sandbox:
+  enforce_docker: false
+  fallback_subprocess: true
+  allowed_directories:
+    - "src/"
+    - "tests/"
+    - "docs/"
+    - ".ai-sd-os/"
