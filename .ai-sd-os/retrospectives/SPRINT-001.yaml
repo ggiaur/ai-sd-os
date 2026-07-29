@@ -2,5 +2,5 @@ sprint_id: SPRINT-001
 what_worked: WorkPackage WP-001 features implemented successfully.
 what_failed: Single retry needed if assertions failed on first run.
 carry_forward_note: Ensure exact type checking and unit test isolation for new requirements.
-retry_count: 1
+retry_count: 2
 duration_minutes: 10
