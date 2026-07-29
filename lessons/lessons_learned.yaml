@@ -1,6 +1,6 @@
 entries:
 - pattern: Sprint SPRINT-001 execution pattern
-  occurrences: 17
+  occurrences: 19
   projects:
   - sample_app / SPRINT-001
   - ' / SPRINT-001'
