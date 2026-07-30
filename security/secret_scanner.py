@@ -35,7 +35,8 @@ class SecretScanner:
 
     def scan_directory(self, root_dir: Path) -> List[Dict[str, Any]]:
         results = []
+        ignored = {".git", ".ai-sd-os", "node_modules", ".venv", "__pycache__", ".pytest_cache"}
         for p in root_dir.glob("**/*"):
-            if p.is_file() and ".git" not in p.parts and ".ai-sd-os" not in p.parts:
+            if p.is_file() and not any(part in ignored for part in p.parts):
                 results.extend(self.scan_file(p))
         return results

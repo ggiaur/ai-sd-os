@@ -59,16 +59,14 @@ class EngineRunner:
         handle = detect_project(self.cwd)
 
         if handle:
-            print(f"📌 Folytatás meglévő AI-SD-OS projektből ({self.cwd.name}). Állapot: {handle.state.value}")
-            await self.execute_from_state(handle.state)
-        else:
             print(f"╔══════════════════════════════════════════════════╗")
-            print(f"║  AI-SD-OS V5 — Mi a helyzet?                     ║")
+            print(f"║  AI-SD-OS V5 — Meglévő projekt: {self.cwd.name:<16} ║")
             print(f"╚══════════════════════════════════════════════════╝\n")
-            print(f"Ebben a könyvtárban ({self.cwd.resolve()})")
-            print(f"még nincs AI-SD-OS projekt.\n")
-            print("[1] Új projektet indítok (üres lapról, tervezési kérdések)")
-            print("[2] Felmérem a meglévő kódot, és onnan folytatom")
+            print(f"Állapot: {handle.state.value}\n")
+            print("[1] Új sprint indítása (új követelmények hozzáadása)")
+            print("[2] Kódbázis felmérése és specifikáció frissítése (Discovery)")
+            print("[3] Detektált projektek listázása")
+            print("[4] Projekt állapotának törlése (Reset)")
 
             if self.config.mock_mode:
                 choice = "1"
@@ -78,7 +76,64 @@ class EngineRunner:
                 except EOFError:
                     choice = "1"
 
-            if choice == "2":
+            if choice == "4":
+                import shutil
+                ai_sd_dir = self.cwd / ".ai-sd-os"
+                if ai_sd_dir.exists():
+                    shutil.rmtree(ai_sd_dir)
+                print("✓ Projekt állapota törölve (.ai-sd-os/ eltávolítva).")
+                return
+            elif choice == "3":
+                workspace_root = self.cwd.parent if self.cwd.parent.exists() else self.cwd
+                projects = list_projects(workspace_root, MOTOR_DIR)
+                print(f"\n📋 Detektált AI-SD-OS projektek ({len(projects)}):\n")
+                if not projects:
+                    print("  (Nincs még aktív projekt a szülőkönyvtárban)")
+                for p in projects:
+                    print(f"  • {p.name:<25} [{p.state}] -> {p.path}")
+                print()
+                return
+            elif choice == "2":
+                print(f"\n[DISCOVERY] Kódbázis felmérése elindítva...")
+                save_project_state(self.cwd, ProjectState.DISCOVERY)
+                snapshot = await self.discovery_agent.survey_codebase(self.cwd)
+                planner = CLIPlanner()
+                spec = planner.create_spec_interactive(self.cwd, snapshot=snapshot, auto_approve=self.config.mock_mode)
+                save_project_state(self.cwd, ProjectState.SPEC)
+                await self.start_sprint_pipeline(spec)
+                return
+            else:
+                await self.execute_from_state(handle.state)
+                return
+        else:
+            print(f"╔══════════════════════════════════════════════════╗")
+            print(f"║  AI-SD-OS V5 — Mi a helyzet?                     ║")
+            print(f"╚══════════════════════════════════════════════════╝\n")
+            print(f"Ebben a könyvtárban ({self.cwd.resolve()})")
+            print(f"még nincs AI-SD-OS projekt.\n")
+            print("[1] Új projektet indítok (üres lapról, tervezési kérdések)")
+            print("[2] Felmérem a meglévő kódot, és onnan folytatom")
+            print("[3] Detektált projektek listázása")
+
+            if self.config.mock_mode:
+                choice = "1"
+            else:
+                try:
+                    choice = input("> ").strip()
+                except EOFError:
+                    choice = "1"
+
+            if choice == "3":
+                workspace_root = self.cwd.parent if self.cwd.parent.exists() else self.cwd
+                projects = list_projects(workspace_root, MOTOR_DIR)
+                print(f"\n📋 Detektált AI-SD-OS projektek ({len(projects)}):\n")
+                if not projects:
+                    print("  (Nincs még aktív projekt a szülőkönyvtárban)")
+                for p in projects:
+                    print(f"  • {p.name:<25} [{p.state}] -> {p.path}")
+                print()
+                return
+            elif choice == "2":
                 print(f"\n[DISCOVERY] Kódbázis felmérése elindítva...")
                 save_project_state(self.cwd, ProjectState.DISCOVERY)
                 snapshot = await self.discovery_agent.survey_codebase(self.cwd)
