@@ -11,6 +11,10 @@ from kernel.contracts.serializer import save_yaml_contract
 from security.secret_scanner import SecretScanner
 
 class DiscoveryAgent(BaseAgentSDK):
+    def __init__(self, name: str, bus, provider, secret_scan_patterns: Optional[list] = None):
+        self.secret_scan_patterns = secret_scan_patterns
+        super().__init__(name, bus, provider)
+
     def register_subscriptions(self) -> None:
         self.bus.subscribe(EventType.SYSTEM_INITIALIZED, self.process_event)
 
@@ -46,8 +50,8 @@ class DiscoveryAgent(BaseAgentSDK):
             if "postgres" in req_content.lower() or "psycopg" in req_content.lower():
                 databases.append("postgresql")
 
-        # Security scan
-        scanner = SecretScanner()
+        # Security scan (kernel/policy/security.yaml alapján, ha be van kötve)
+        scanner = SecretScanner(patterns=self.secret_scan_patterns)
         findings = scanner.scan_directory(project_root)
         risk_flags = [f"{f['file']}:{f['line']} -> {f['match']}" for f in findings]
         secret_status = "FLAGGED" if findings else "CLEAN"

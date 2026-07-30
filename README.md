@@ -1,27 +1,50 @@
-AI-SD-OS V6.1.0 — Enterprise Software Factory Operating System
-Master Architecture Specification & Reference Documentation
-"Clone it. Answer the questions. Ship the enterprise project."
+# AI-SD-OS V6.1.0 — Enterprise Software Factory Operating System
 
-1. RENDSZER ÁTTEKINTÉS ÉS ALAPELVEK
+**Master Architecture Specification & Reference Documentation**
+
+> "Clone it. Answer the questions. Ship the enterprise project."
+
+## Tartalomjegyzék
+
+1. [Rendszer Áttekintés és Alapelvek](#1-rendszer-áttekintés-és-alapelvek)
+2. [Hogyan Működik? (Quick Start)](#2-hogyan-működik-quick-start)
+3. [Motor vs. Projekt Architektúra](#3-motor-vs-projekt-architektúra)
+4. [Teljes Könyvtárszerkezet (ai-sd-os/)](#4-teljes-könyvtárszerkezet-ai-sd-os)
+5. [A Rendszer Alkotmánya](#5-a-rendszer-alkotmánya-kernelsystemsystem_constitutionmd)
+6. [Formális Matematikai és Garanciális Modell](#6-formális-matematikai-és-garanciális-modell)
+7. [Az Állapotgép (State Machine) és a HITL Kapuk](#7-az-állapotgép-state-machine-és-a-hitl-kapuk)
+8. [Formális Szoftverszerződések és Sémák](#8-formális-szoftverszerződések-és-sémák)
+9. [Discovery Mode — a "README-First" Megközelítés](#9-discovery-mode--a-readme-first-megközelítés)
+10. [Kétszintű Tanulási Modell](#10-kétszintű-tanulási-modell)
+11. [Telepítés és Használat](#11-telepítés-és-használat)
+12. [Függőségek (requirements.txt)](#12-függőségek-requirementstxt)
+13. [Licenc](#13-licenc)
+14. [Kódmelléklet — contracts/ és kernel/ Modulok](#14-kódmelléklet--contracts-és-kernel-modulok)
+15. [Kódmelléklet — SDK, Ágensek, Runtime és Fő Indító Modulok](#15-kódmelléklet--sdk-ágensek-runtime-és-fő-indító-modulok)
+
+> **Megjegyzés a 14–15. fejezetekről:** Ez a két fejezet a V6.1.0 architektúra tervezéskori referencia-forráskódját tartalmazza (blueprint). A repóban ténylegesen megvalósított kód ettől több ponton eltér — lásd az [Auditálási megjegyzést](#auditálási-megjegyzés-v61-blueprint-vs-tényleges-kód) a dokumentum végén.
+
+---
+
+## 1. Rendszer Áttekintés és Alapelvek
+
 Az AI-SD-OS (AI Software Development Operating System) egy letölthető, eseményvezérelt, formálisan verifikálható fejlesztési keretrendszer és szoftvergyár. Bármilyen szoftverprojektet képes végigvezetni a nyers üzleti ötlettől a kész, tesztelt és auditálható kódbázisig — szigorúan szabályozott emberi jóváhagyási pontok (Human-in-the-Loop Gates) mellett.
 
 Nem egy konkrét projekt, és nem egy statikus sablon. Hanem egy projekt-generátor motor: egy fix, stabil kernel, amely körül az ágensek, promptok, szoftverszerződések és sprintek automatikusan hajtják a fejlesztési folyamatot.
 
 A rendszer stack-agnosztikus: Python, TypeScript, Go, Rust, Java, C#, PHP vagy bármilyen más technológia feletti projektekhez egyaránt használható.
 
-Kritikus Tervezési Alapelvek
-Motor vs. Projekt Elválasztás (Git Izoláció): A motor (ai-sd-os/) és a generált projektek soha nem élnek ugyanabban a Git repóban. A motort egyszer klónozod, a projekteket független testvérkönyvtárakként kezeled.
+### Kritikus Tervezési Alapelvek
 
-Directory-Native Állapot (.ai-sd-os/): Nincs központi adatbázis vagy registry.json. A projekt teljes állapota, memóriája és audit-naplója a projekt saját könyvtárában, a .ai-sd-os/ mappában él.
+- **Motor vs. Projekt Elválasztás (Git Izoláció):** A motor (`ai-sd-os/`) és a generált projektek soha nem élnek ugyanabban a Git repóban. A motort egyszer klónozod, a projekteket független testvérkönyvtárakként kezeled.
+- **Directory-Native Állapot (`.ai-sd-os/`):** Nincs központi adatbázis vagy `registry.json`. A projekt teljes állapota, memóriája és audit-naplója a projekt saját könyvtárában, a `.ai-sd-os/` mappában él.
+- **Contract-First & Event-Driven Architecture:** A komponensek nem hívják egymást közvetlenül. Minden kommunikáció a szigorúan típusos EventBus-on és Pydantic sémákon keresztül zajlik.
+- **Formális Garanciák:** Kriptográfiai eseménynapló (Ledger), kétirányú nyomonkövethetőség (Traceability), AST-szintű párhuzamos ágens-zárolás (Swarm Protocol) és automatikus architektúra-eltérés érzékelés (Drift Detection).
+- **Fejlesztési Környezet:** A rendszer az Antigravity CLI (`agy`) alatt fut, Linux környezetben. A motor a munkakönyvtárból (cwd) automatikusan detektálja az állapotot.
 
-Contract-First & Event-Driven Architecture: A komponensek nem hívják egymást közvetlenül. Minden kommunikáció a szigorúan típusos EventBus-on és Pydantic sémákon keresztül zajlik.
+## 2. Hogyan Működik? (Quick Start)
 
-Formális Garanciák: Kriptográfiai eseménynapló (Ledger), kétirányú nyomonkövethetőség (Traceability), AST-szintű párhuzamos ágens-zárolás (Swarm Protocol) és automatikus architektúra-eltérés érzékelés (Drift Detection).
-
-Fejlesztési Környezet: A rendszer az Antigravity CLI (agy) alatt fut, Linux környezetben. A motor a munkakönyvtárból (cwd) automatikusan detektálja az állapotot.
-
-2. HOGYAN MŰKÖDIK? (QUICK START)
-Bash
+```bash
 # 1. A motort egyszer klónozod egy központi helyre — ez a "gyár", nem a "termék"
 git clone https://github.com/yourorg/ai-sd-os.git /srv/projekts/ai-sd-os
 cd /srv/projekts/ai-sd-os
@@ -30,13 +53,14 @@ pip install -r requirements.txt
 # 2. Minden projektmunkát a PROJEKT saját könyvtárából indítasz
 cd /srv/projekts/webarchivum
 python /srv/projekts/ai-sd-os/main.py
-A main.py megvizsgálja az aktuális munkakönyvtárat (cwd):
+```
 
-Van .ai-sd-os/ mappa? → Folytatja a fejlesztést a mentett állapotgép státusztól.
+A `main.py` megvizsgálja az aktuális munkakönyvtárat (cwd):
 
-Nincs .ai-sd-os/ mappa? → Elindítja az interaktív varázslót (Új projekt tervezése vagy meglévő kód felmérése).
+- Van `.ai-sd-os/` mappa? → Folytatja a fejlesztést a mentett állapotgép státusztól.
+- Nincs `.ai-sd-os/` mappa? → Elindítja az interaktív varázslót (Új projekt tervezése vagy meglévő kód felmérése).
 
-Plaintext
+```text
 ╔══════════════════════════════════════════════════╗
 ║  AI-SD-OS V6.1.0 — Mi a helyzet?                 ║
 ╚══════════════════════════════════════════════════╝
@@ -47,45 +71,57 @@ még nincs AI-SD-OS projekt.
 [1] Új projektet indítok (üres lapról, tervezési kérdések)
 [2] Felmérem a meglévő kódot, és onnan folytatom
 > _
-Nincs new / adopt alparancs — a motor a cwd-ből ért mindent, pont ahogy a git, a terraform, vagy az npm is teszi.
+```
 
-3. MOTOR VS. PROJEKT ARCHITEKTÚRA
-Tulajdonság	A Motor (ai-sd-os/)	A Projekt (<projekt-neve>/)
-Szerep	Kernel, ágensek, sémák, promptok	Konkrét szoftvertermék és forráskód
-Útvonal	/srv/projekts/ai-sd-os/	/srv/projekts/webarchivum/
-Git Repó	A motor saját fejlesztési története	A termék saját, tiszta commit története
-Verziózás	Motor kiadások (v6.0.0, v6.1.0)	Sprint tagek (SPRINT-001, SPRINT-002)
-Állapot	Állapotmentes (Stateless)	.ai-sd-os/ mappa a munkakönyvtárban
-Példányszám	Egyetlen központi klón	Tetszőleges számú párhuzamos projekt
-Workspace Gyökér és Testvérkönyvtárak
-Plaintext
+Nincs `new` / `adopt` alparancs — a motor a cwd-ből ért mindent, pont ahogy a git, a terraform, vagy az npm is teszi.
+
+## 3. Motor vs. Projekt Architektúra
+
+| Tulajdonság  | A Motor (`ai-sd-os/`)                  | A Projekt (`<projekt-neve>/`)             |
+|--------------|-----------------------------------------|--------------------------------------------|
+| Szerep       | Kernel, ágensek, sémák, promptok        | Konkrét szoftvertermék és forráskód         |
+| Útvonal      | `/srv/projekts/ai-sd-os/`               | `/srv/projekts/webarchivum/`                |
+| Git Repó     | A motor saját fejlesztési története     | A termék saját, tiszta commit története     |
+| Verziózás    | Motor kiadások (v6.0.0, v6.1.0)         | Sprint tagek (SPRINT-001, SPRINT-002)       |
+| Állapot      | Állapotmentes (Stateless)                | `.ai-sd-os/` mappa a munkakönyvtárban       |
+| Példányszám  | Egyetlen központi klón                   | Tetszőleges számú párhuzamos projekt        |
+
+### Workspace Gyökér és Testvérkönyvtárak
+
+```text
 /srv/projekts/
 ├── ai-sd-os/              ← A motor saját Git repója (egyszer klónozod)
 ├── webarchivum/           ← Projekt A (saját Git repó, saját .ai-sd-os/)
 ├── todo-app-a1b2c3/       ← Projekt B (saját Git repó, saját .ai-sd-os/)
 └── crm-backend-d4e5f6/    ← Projekt C (saját Git repó, saját .ai-sd-os/)
-A Directory-Native Állapot (.ai-sd-os/)
-Plaintext
+```
+
+### A Directory-Native Állapot (`.ai-sd-os/`)
+
+```text
 /srv/projekts/webarchivum/
 ├── README.md                   # Elsődleges információforrás
 └── .ai-sd-os/
     ├── state.json              # Állapotgép státusza és engine metaadatok
-    ├── SPEC_FORMAL.yaml        # Formális specifikáció (Product Backlog)
-    ├── CODEBASE_SNAPSHOT.yaml  # Meglévő kódbázis felmérésének eredménye
-    ├── ledger/                 # Kriptográfiai esemény-blokklánc
+    ├── SPEC_FORMAL.yaml         # Formális specifikáció (Product Backlog)
+    ├── CODEBASE_SNAPSHOT.yaml   # Meglévő kódbázis felmérésének eredménye
+    ├── ledger/                  # Kriptográfiai esemény-blokklánc
     │   └── chain.json
-    ├── checkpoints/            # Mentési pontok (state snapshots)
+    ├── checkpoints/             # Mentési pontok (state snapshots)
     │   ├── checkpoint_SPEC_20260730_143025.json
     │   └── checkpoint_DEVELOPMENT_20260730_143041.json
-    ├── retrospectives/         # Sprint tanulságok
+    ├── retrospectives/          # Sprint tanulságok
     │   ├── SPRINT-001.yaml
     │   └── SPRINT-002.yaml
-    └── memory/                 # Projekt strukturált memóriája
-        ├── decisions.yaml      # ADR-ek (Decision Freeze engedélyezve)
-        ├── architecture.yaml   # Detektált és tervezett struktúra
-        └── known_issues.yaml   # Technikai adósságok és ismert hibák
-4. TELJES KÖNYVTÁRSZERKEZET (ai-sd-os/)
-Plaintext
+    └── memory/                  # Projekt strukturált memóriája
+        ├── decisions.yaml       # ADR-ek (Decision Freeze engedélyezve)
+        ├── architecture.yaml    # Detektált és tervezett struktúra
+        └── known_issues.yaml    # Technikai adósságok és ismert hibák
+```
+
+## 4. Teljes Könyvtárszerkezet (`ai-sd-os/`)
+
+```text
 ai-sd-os/                               ← A motor könyvtára
 ├── kernel/
 │   ├── system/
@@ -196,8 +232,11 @@ ai-sd-os/                               ← A motor könyvtára
 ├── main.py                             # Belépési pont
 ├── requirements.txt
 └── README.md
-5. A RENDSZER ALKOTMÁNYA (kernel/system/SYSTEM_CONSTITUTION.md)
-Markdown
+```
+
+## 5. A Rendszer Alkotmánya (`kernel/system/SYSTEM_CONSTITUTION.md`)
+
+```markdown
 # AI-SD-OS SYSTEM CONSTITUTION
 
 1. INVARIANT_SPEC_FIRST: Kód nem születhet formális specifikáció (SPEC_FORMAL.yaml) és munkacsomag (WORK_PACKAGE.yaml) nélkül.
@@ -208,104 +247,45 @@ Markdown
 6. INVARIANT_HITL_GATES: A Sprint Planning és Sprint Review kapuk emberi jóváhagyása nem bypass-olható.
 7. INVARIANT_DESTRUCTIVE_SAFETY: Destruktív műveletek (fájltörlés az allowed_paths-on kívül, adatbázis-droppolás, force push) mindig explicit, egyedi jóváhagyást igényelnek.
 8. INVARIANT_KERNEL_IMMUTABILITY: A motor kernel-szintű változtatása (prompt, agent, schema) soha nem automatikus — az mindig külön emberi review-t és verzióemelést igényel.
-6. FORMÁLIS MATEMATIKAI ÉS GARANCIÁLIS MODELL
-1. Kriptográfiai Execution Ledger (L2.1)
-Minden esemény (E 
-k
-​
- ) hash-láncolatot képez a .ai-sd-os/ledger/chain.json fájlban:
+```
 
-H 
-k
-​
- =SHA256(H 
-k−1
-​
- ∥Timestamp 
-k
-​
- ∥AgentID 
-k
-​
- ∥Action 
-k
-​
- ∥PayloadHash 
-k
-​
- )
-2. Stratégiai Értékszámítás (L1.5)
-A projekt elindítása előtti elutasítási kapu (V 
-strategic
-​
- <15.0⟹CANCEL):
+## 6. Formális Matematikai és Garanciális Modell
 
-V 
-strategic
-​
- = 
-C 
-maint
-​
- ⋅T 
-risk
-​
- 
-B 
-value
-​
- ⋅R 
-expected
-​
- 
-​
- 
-3. Kontextus Relevancia Pontozás (Context Compiler)
-A kontextus-robbanás elkerülésére a memory/ adatbázisból csak a legmagasabb R 
-i
-​
-  pontszámú elemek kerülnek be az ágens kontextusába:
+### 6.1 Kriptográfiai Execution Ledger (L2.1)
 
-R 
-i
-​
- =(w 
-1
-​
- ⋅S 
-tag
-​
- )+(w 
-2
-​
- ⋅score 
-success
-​
- )−(w 
-3
-​
- ⋅Δt)
-4. Szemantikai Replay Ekvivalencia (Recovery)
-A visszajátszás akkor sikeres (E 
-semantic
-​
- =TRUE), ha az újragenerált kód AST-ben megegyezik az eredetivel, vagy átmegy a verifikációs teszteken:
+Minden esemény (`E_k`) hash-láncolatot képez a `.ai-sd-os/ledger/chain.json` fájlban:
 
-E 
-semantic
-​
- =(AST(C 
-replay
-​
- )≡AST(C 
-original
-​
- ))∨(Tests(C 
-replay
-​
- )=PASS)
-7. AZ ÁLLAPOTGÉP (STATE MACHINE) ÉS A HITL KAPUK
-Plaintext
+```text
+H_k = SHA256(H_(k-1) ∥ Timestamp_k ∥ AgentID_k ∥ Action_k ∥ PayloadHash_k)
+```
+
+### 6.2 Stratégiai Értékszámítás (L1.5)
+
+A projekt elindítása előtti elutasítási kapu (`V_strategic < 15.0 ⟹ CANCEL`):
+
+```text
+V_strategic = (B_value × R_expected) / (C_maint × T_risk)
+```
+
+### 6.3 Kontextus Relevancia Pontozás (Context Compiler)
+
+A kontextus-robbanás elkerülésére a `memory/` adatbázisból csak a legmagasabb `R_i` pontszámú elemek kerülnek be az ágens kontextusába:
+
+```text
+R_i = (w1 × S_tag) + (w2 × score_success) − (w3 × Δt)
+```
+
+### 6.4 Szemantikai Replay Ekvivalencia (Recovery)
+
+A visszajátszás akkor sikeres (`E_semantic = TRUE`), ha az újragenerált kód AST-ben megegyezik az eredetivel, vagy átmegy a verifikációs teszteken:
+
+```text
+E_semantic = (AST(C_replay) ≡ AST(C_original)) ∨ (Tests(C_replay) = PASS)
+```
+
+## 7. Az Állapotgép (State Machine) és a HITL Kapuk
+
+```text
 INIT
   │
   ▼
@@ -320,7 +300,7 @@ WORK_PACKAGE         ← Sprint Backlog kiválasztva (prioritás + kapacitás al
   ▼
 ┌─────────────────────────────────────────┐
 │ 🔒 SPRINT_PLANNING  — HUMAN GATE         │  ← "Ezt a scope-ot, ennyi taszkkal,
-│    (jóváhagyás szükséges)                │     ezzel a Definition of Done-nal elindítsam?"
+│    (jóváhagyás szükséges)                │     ezzel a Definition of Done-nal indítsam?"
 └─────────────────────────────────────────┘
   │
   ▼
@@ -350,9 +330,13 @@ DEVELOPMENT / WORK_PACKAGE   PR_CREATED   ← Git commit + branch
                     │ igen                         nem     │
                     ▼                                       ▼
               WORK_PACKAGE (köv. sprint)                  DONE ✓
-8. FORMÁLIS SZOFTVERSZERZŐDÉSEK ÉS SÉMÁK
-1. SPEC_FORMAL.yaml
-YAML
+```
+
+## 8. Formális Szoftverszerződések és Sémák
+
+### 8.1 `SPEC_FORMAL.yaml`
+
+```yaml
 id: "SPEC-001"
 title: "Webarchívum Szolgáltatás"
 description: "Weboldalak automatikus mentése és kereshető archiválása"
@@ -371,8 +355,11 @@ requirements:
     description: "Bearer tokenes védelem az API-hoz"
     priority: "HIGH"
     status: "PENDING"
-2. WORK_PACKAGE.yaml
-YAML
+```
+
+### 8.2 `WORK_PACKAGE.yaml`
+
+```yaml
 id: "WP-001"
 sprint_id: "SPRINT-001"
 goal: "FastAPI CRUD endpoint-ok implementálása"
@@ -387,8 +374,11 @@ max_execution_time_minutes: 30
 tests_required: true
 coverage_mapping:
   "FR-001": ["test_create_todo", "test_read_todo"]
-3. CAPABILITY_REGISTRY.yaml
-YAML
+```
+
+### 8.3 `CAPABILITY_REGISTRY.yaml`
+
+```yaml
 capabilities:
   code_generation:
     primary_provider: "ClaudeCodeCLI"
@@ -405,8 +395,11 @@ capabilities:
     primary_provider: "ArchitectAgent"
     fallback_providers: ["DeepSeekR1Agent"]
     decision_authority: "FROZEN_ADR_CHECK"
-4. ORGANIZATION_GENOME.yaml
-YAML
+```
+
+### 8.4 `ORGANIZATION_GENOME.yaml`
+
+```yaml
 organization_id: "ORG-ENTERPRISE-CORE"
 total_projects_analyzed: 42
 genome_version: "v4.2"
@@ -423,21 +416,30 @@ forbidden_patterns:
     reason: "A korábbi projektek során az esetek 88%-ában tesztelhetőségi és karbantartási hibákhoz vezetett."
   - pattern_id: "ANTI-SHARED-DATABASE"
     reason: "Mikroszolgáltatások közötti adatmodell-törést okoz."
-9. DISCOVERY MODE — A "README-FIRST" MEGKÖZELÍTÉS
-A rendszer a projekt gyökerében található README.md fájlt tekinti az elsődleges információforrásnak.
+```
 
-A Discovery Mátrix
-Állapot	Van README.md	Nincs README.md
-Új Projekt	Beolvassa a létező koncepciót és csak a hiányzó részekre kérdez rá.	A CLI kérdések lefutnak, a rendszer megalkotja a SPEC_FORMAL.yaml-t és legyártja a kezdő README.md-t.
-Meglévő Projekt	Beolvassa a README-t és a kódot. Célzott tisztázó kérdéseket tesz fel.	A felmérés után legyártja a hiányzó README.md-t és felveszi a technikai adósságok közé.
-10. KÉTSZINTŰ TANULÁSI MODELL
-A) Projekt-szintű Tanulás (Automatikus)
-A RetrospectiveCollector minden sprint végén rögzíti a tanulságot a .ai-sd-os/retrospectives/SPRINT-XXX.yaml fájlba. A carry_forward_note mező bekerül a következő sprint prompt kontextusába.
+## 9. Discovery Mode — a "README-First" Megközelítés
 
-B) Motor-szintű Lessons Learned (Emberi felülvizsgálattal)
-A motor gyökerében lévő lessons/lessons_learned.yaml aggregálja a mintákat több projektből:
+A rendszer a projekt gyökerében található `README.md` fájlt tekinti az elsődleges információforrásnak.
 
-YAML
+### A Discovery Mátrix
+
+| Állapot          | Van README.md                                                                 | Nincs README.md                                                                                      |
+|------------------|----------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| Új Projekt       | Beolvassa a létező koncepciót és csak a hiányzó részekre kérdez rá.        | A CLI kérdések lefutnak, a rendszer megalkotja a `SPEC_FORMAL.yaml`-t és legyártja a kezdő README.md-t. |
+| Meglévő Projekt  | Beolvassa a README-t és a kódot. Célzott tisztázó kérdéseket tesz fel.     | A felmérés után legyártja a hiányzó README.md-t és felveszi a technikai adósságok közé.                |
+
+## 10. Kétszintű Tanulási Modell
+
+### A) Projekt-szintű Tanulás (Automatikus)
+
+A `RetrospectiveCollector` minden sprint végén rögzíti a tanulságot a `.ai-sd-os/retrospectives/SPRINT-XXX.yaml` fájlba. A `carry_forward_note` mező bekerül a következő sprint prompt kontextusába.
+
+### B) Motor-szintű Lessons Learned (Emberi felülvizsgálattal)
+
+A motor gyökerében lévő `lessons/lessons_learned.yaml` aggregálja a mintákat több projektből:
+
+```yaml
 entries:
   - pattern: "Időzóna-kezelésű követelmények"
     occurrences: 3
@@ -445,23 +447,33 @@ entries:
       - "webarchivum / SPRINT-003"
     suggested_action: "Frissíteni a discovery fázis CLI kérdéseit"
     status: "PENDING_HUMAN_REVIEW"
-A suggested_action mező csak javaslatot tesz — a motort kizárólag emberi PR és verzióemelés módosíthatja (Alkotmány 8. törvény).
+```
 
-11. TELEPÍTÉS ÉS HASZNÁLAT
-1. Motor Telepítése
-Bash
+A `suggested_action` mező csak javaslatot tesz — a motort kizárólag emberi PR és verzióemelés módosíthatja (Alkotmány 8. törvény).
+
+## 11. Telepítés és Használat
+
+### 1. Motor Telepítése
+
+```bash
 git clone https://github.com/yourorg/ai-sd-os.git /srv/projekts/ai-sd-os
 cd /srv/projekts/ai-sd-os
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env # .env szerkesztése: ANTHROPIC_API_KEY beállítása
-2. Projekt Futtatása
-Bash
+```
+
+### 2. Projekt Futtatása
+
+```bash
 cd /srv/projekts/webarchivum
 python /srv/projekts/ai-sd-os/main.py
-12. FÜGGŐSÉGEK (requirements.txt)
-Plaintext
+```
+
+## 12. Függőségek (`requirements.txt`)
+
+```text
 pydantic>=2.0
 pyyaml>=6.0
 anthropic>=0.25.0
@@ -471,16 +483,21 @@ pytest>=8.0.0
 pytest-asyncio>=0.23.0
 python-dotenv>=1.0.0
 asyncio>=3.4.3
-13. LICENC
+```
+
+## 13. Licenc
+
 MIT License — szabad felhasználás, módosítás és terjesztés.
 
+---
 
+## 14. Kódmelléklet — `contracts/` és `kernel/` Modulok
 
+### 14.1 Formális Szerződések és Események (`contracts/`)
 
-2. LÉPÉS: contracts/ ÉS kernel/ MODULOK TELJES PYTHON KÓDJA
-1. FORMÁLIS SZERZŐDÉSEK ÉS ESEMÉNYEK (contracts/)
-1.1. Alap Esemény Modell (contracts/events/base_event.py)
-Python
+#### 14.1.1 Alap Esemény Modell (`contracts/events/base_event.py`)
+
+```python
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict
@@ -526,8 +543,11 @@ class BaseEvent(BaseModel):
     sender_id: str
     payload: Dict[str, Any] = Field(default_factory=dict)
     correlation_id: str = Field(default_factory=lambda: str(uuid4()))
-1.2. Specifikációs Események (contracts/events/spec_events.py)
-Python
+```
+
+#### 14.1.2 Specifikációs Események (`contracts/events/spec_events.py`)
+
+```python
 from typing import Dict, Any
 from pydantic import Field
 from contracts.events.base_event import BaseEvent, EventType
@@ -552,8 +572,11 @@ class CodebaseSurveyedEvent(BaseEvent):
     payload: Dict[str, Any] = Field(
         ..., description="Köteles tartalmazni a 'snapshot_path' kulcsot."
     )
-1.3. Sprint & Fejlesztési Események (contracts/events/sprint_events.py)
-Python
+```
+
+#### 14.1.3 Sprint & Fejlesztési Események (`contracts/events/sprint_events.py`)
+
+```python
 from typing import Dict, Any
 from pydantic import Field
 from contracts.events.base_event import BaseEvent, EventType
@@ -585,8 +608,11 @@ class TestsFailedEvent(BaseEvent):
     payload: Dict[str, Any] = Field(
         ..., description="Tartalmazza az 'exit_code', 'stderr' és 'retry_count' kulcsokat."
     )
-1.4. Kapu & Eszkalációs Események (contracts/events/gate_events.py)
-Python
+```
+
+#### 14.1.4 Kapu & Eszkalációs Események (`contracts/events/gate_events.py`)
+
+```python
 from typing import Dict, Any
 from pydantic import Field
 from contracts.events.base_event import BaseEvent, EventType
@@ -616,8 +642,11 @@ class PipelineBlockedEvent(BaseEvent):
     payload: Dict[str, Any] = Field(
         ..., description="Tartalmazza a 'reason' és 'last_error' mezőket."
     )
-1.5. Formális Specifikáció Szerződés (contracts/spec_formal.py)
-Python
+```
+
+#### 14.1.5 Formális Specifikáció Szerződés (`contracts/spec_formal.py`)
+
+```python
 from typing import List
 from pydantic import BaseModel, Field
 
@@ -648,8 +677,11 @@ class SpecFormal(BaseModel):
     project_goal: str = Field(..., min_length=10)
     tech_stack: List[str] = Field(..., min_items=1)
     requirements: List[RequirementItem] = Field(..., min_items=1)
-1.6. Munkacsomag Szerződés (contracts/work_package.py)
-Python
+```
+
+#### 14.1.6 Munkacsomag Szerződés (`contracts/work_package.py`)
+
+```python
 from typing import Dict, List
 from pydantic import BaseModel, Field
 
@@ -672,8 +704,11 @@ class WorkPackage(BaseModel):
         ...,
         description="FR-XXX azonosítók lefedése konkrét tesztfüggvény nevekkel.",
     )
-1.7. Definition of Done Szerződés (contracts/definition_of_done.py)
-Python
+```
+
+#### 14.1.7 Definition of Done Szerződés (`contracts/definition_of_done.py`)
+
+```python
 from typing import List
 from pydantic import BaseModel, Field
 
@@ -695,8 +730,11 @@ class DefinitionOfDone(BaseModel):
 
     def is_fully_satisfied(self) -> bool:
         return all(c.passed for c in self.criteria)
-1.8. Kódbázis Felmérési Szerződés (contracts/codebase_snapshot.py)
-Python
+```
+
+#### 14.1.8 Kódbázis Felmérési Szerződés (`contracts/codebase_snapshot.py`)
+
+```python
 from typing import List
 from pydantic import BaseModel, Field
 
@@ -724,8 +762,11 @@ class CodebaseSnapshot(BaseModel):
     )
     has_readme: bool = True
     has_dockerfile: bool = False
-1.9. Nyomonkövethetőségi Mátrix (contracts/traceability_matrix.py)
-Python
+```
+
+#### 14.1.9 Nyomonkövethetőségi Mátrix (`contracts/traceability_matrix.py`)
+
+```python
 from typing import List
 from pydantic import BaseModel, Field
 
@@ -746,9 +787,13 @@ class TraceabilityMatrix(BaseModel):
         self, req_id: str
     ) -> List[TraceabilityLink]:
         return [link for link in self.links if link.requirement_id == req_id]
-2. KERNEL MAG ÉS RENDSZERMÓDULOK (kernel/)
-2.1. Konfiguráció (kernel/system/config.py)
-Python
+```
+
+### 14.2 Kernel Mag és Rendszermodulok (`kernel/`)
+
+#### 14.2.1 Konfiguráció (`kernel/system/config.py`)
+
+```python
 from pathlib import Path
 from pydantic import BaseModel, Field
 
@@ -760,8 +805,11 @@ class KernelConfig(BaseModel):
     storage_dir: Path = Field(default=Path("./runtime"))
     max_budget_usd: float = Field(default=100.0, ge=0.0)
     enforce_decision_freeze: bool = True
-2.2. Aszinkron EventBus Engine (kernel/event_bus/bus.py)
-Python
+```
+
+#### 14.2.2 Aszinkron EventBus Engine (`kernel/event_bus/bus.py`)
+
+```python
 import asyncio
 import logging
 from collections import defaultdict
@@ -818,8 +866,11 @@ class EventBus:
                         exc_info=True,
                     )
             self._queue.task_done()
-2.3. Állapotok Definíciója (kernel/state/states.py)
-Python
+```
+
+#### 14.2.3 Állapotok Definíciója (`kernel/state/states.py`)
+
+```python
 from enum import Enum
 
 
@@ -836,8 +887,11 @@ class StateEnum(str, Enum):
     PR_CREATED = "PR_CREATED"
     RETROSPECTIVE = "RETROSPECTIVE"
     DONE = "DONE"
-2.4. Állapotátmeneti Mátrix (kernel/state/transitions.py)
-Python
+```
+
+#### 14.2.4 Állapotátmeneti Mátrix (`kernel/state/transitions.py`)
+
+```python
 from typing import Dict, Set
 from kernel.state.states import StateEnum
 
@@ -859,8 +913,11 @@ ALLOWED_TRANSITIONS: Dict[StateEnum, Set[StateEnum]] = {
     StateEnum.RETROSPECTIVE: {StateEnum.WORK_PACKAGE, StateEnum.DONE},
     StateEnum.DONE: set(),
 }
-2.5. Állapot-Validátorok és Tároló (kernel/state/validators.py & kernel/state/state_store.py)
-Python
+```
+
+#### 14.2.5 Állapot-Validátorok és Tároló (`kernel/state/validators.py` & `kernel/state/state_store.py`)
+
+```python
 # kernel/state/validators.py
 from kernel.state.states import StateEnum
 from kernel.state.transitions import ALLOWED_TRANSITIONS
@@ -906,8 +963,11 @@ class StateStore:
 
     def get_data(self, key: str) -> Optional[Any]:
         return self._context_data.get(key)
-2.6. Kriptográfiai Execution Ledger (kernel/ledger/ledger_chain.py)
-Python
+```
+
+#### 14.2.6 Kriptográfiai Execution Ledger (`kernel/ledger/ledger_chain.py`)
+
+```python
 import hashlib
 import json
 from pathlib import Path
@@ -978,8 +1038,11 @@ class LedgerChain:
             if curr.previous_hash != prev.current_hash:
                 return False
         return True
-2.7. Szemantikai Replay Engine (kernel/ledger/replay_engine.py)
-Python
+```
+
+#### 14.2.7 Szemantikai Replay Engine (`kernel/ledger/replay_engine.py`)
+
+```python
 import ast
 from pathlib import Path
 
@@ -1008,8 +1071,11 @@ class SemanticReplayEngine:
             test_command, shell=True, cwd=workspace_path, capture_output=True
         )
         return res.returncode == 0
-2.8. Policy Compiler (kernel/policy/policy_compiler.py)
-Python
+```
+
+#### 14.2.8 Policy Compiler (`kernel/policy/policy_compiler.py`)
+
+```python
 from pathlib import Path
 from typing import Any, Dict
 from pydantic import BaseModel, Field
@@ -1038,8 +1104,11 @@ class PolicyCompiler:
 
         content = yaml.safe_load(rules_file.read_text(encoding="utf-8")) or {}
         return CompiledPolicy(**content)
-2.9. Human-in-the-Loop Kapukezelő (kernel/hitl/gate_manager.py)
-Python
+```
+
+#### 14.2.9 Human-in-the-Loop Kapukezelő (`kernel/hitl/gate_manager.py`)
+
+```python
 import logging
 from contracts.events.base_event import BaseEvent, EventType
 from kernel.event_bus.bus import EventBus
@@ -1098,8 +1167,13 @@ class HITLGateManager:
                     correlation_id=event.correlation_id,
                 )
             )
-2.10. CLI Prompts (kernel/hitl/cli_prompts.py)
-Python
+```
+
+> **Megjegyzés:** ez a snippet a tervezési dokumentumból eredeti formájában maradt — `__init__` a `self._register_subscriptions()`-t hívja, miközben a metódus `register_subscriptions` néven (aláhúzás nélkül) van definiálva. A ténylegesen megvalósított `kernel/hitl/gate_manager.py` ezt a hibát nem tartalmazza.
+
+#### 14.2.10 CLI Prompts (`kernel/hitl/cli_prompts.py`)
+
+```python
 class CLIPromptEngine:
 
     @staticmethod
@@ -1127,8 +1201,11 @@ class CLIPromptEngine:
             .lower()
         )
         return choice == "j"
-2.11. Swarm Párhuzamos Végrehajtó (kernel/swarm/orchestrator.py & ast_locker.py)
-Python
+```
+
+#### 14.2.11 Swarm Párhuzamos Végrehajtó (`kernel/swarm/orchestrator.py` & `ast_locker.py`)
+
+```python
 # kernel/swarm/ast_locker.py
 from typing import Dict, Set
 
@@ -1168,8 +1245,11 @@ class SwarmOrchestrator:
         """Párhuzamosan futtatható feladatcsoportokra bontja a taskokat."""
         # MVP: Minden task független csoportba kerül, ha nincs zárolási ütközés
         return [[t] for t in tasks]
-2.12. Szoftverszerződés Validátor (kernel/contracts/validator.py)
-Python
+```
+
+#### 14.2.12 Szoftverszerződés Validátor (`kernel/contracts/validator.py`)
+
+```python
 from typing import Any, Dict, Type, TypeVar
 from pydantic import BaseModel, ValidationError
 import yaml
@@ -1205,8 +1285,11 @@ class ContractValidator:
             raise ContractValidationError(
                 f"Hibás YAML formátum: {err}"
             ) from err
-2.13. Szerződés Szerializáló (kernel/contracts/serializer.py)
-Python
+```
+
+#### 14.2.13 Szerződés Szerializáló (`kernel/contracts/serializer.py`)
+
+```python
 from pathlib import Path
 from typing import Type, TypeVar
 from pydantic import BaseModel
@@ -1233,8 +1316,11 @@ class ContractSerializer:
             )
         content = path.read_text(encoding="utf-8")
         return ContractValidator.validate_yaml_string(content, model_cls)
-2.14. Budget Controller (kernel/economics/budget_controller.py)
-Python
+```
+
+#### 14.2.14 Budget Controller (`kernel/economics/budget_controller.py`)
+
+```python
 from pydantic import BaseModel, Field
 
 
@@ -1253,8 +1339,11 @@ class BudgetController(BaseModel):
 
     def is_budget_exhausted(self) -> bool:
         return self.consumed_usd >= self.max_budget_usd
-2.15. Stratégiai Érték-Becslő (kernel/economics/value_evaluator.py)
-Python
+```
+
+#### 14.2.15 Stratégiai Érték-Becslő (`kernel/economics/value_evaluator.py`)
+
+```python
 from pydantic import BaseModel, Field
 
 
@@ -1282,8 +1371,11 @@ class StrategicValueEvaluator:
         elif v_idx >= 8.0:
             return "REWORK"
         return "CANCEL"
-2.16. Checkpoint Kezelő Engine (kernel/checkpoint/checkpoint_manager.py)
-Python
+```
+
+#### 14.2.16 Checkpoint Kezelő Engine (`kernel/checkpoint/checkpoint_manager.py`)
+
+```python
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -1322,20 +1414,17 @@ class CheckpointManager:
             return None
         data = json.loads(filepath.read_text(encoding="utf-8"))
         return Checkpoint(**data)
+```
 
+---
 
+## 15. Kódmelléklet — SDK, Ágensek, Runtime és Fő Indító Modulok
 
+### 15.1 Agent SDK Modul (`sdk/`)
 
+#### 15.1.1 SDK Adatmodellek (`sdk/models.py`)
 
-
-
-
-
-
-3. LÉPÉS: SDK, ÁGENSEK, RUNTIME ÉS FŐ INDÍTÓ MODULOK
-1. AGENT SDK MODUL (sdk/)
-1.1. SDK Adatmodellek (sdk/models.py)
-Python
+```python
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -1361,8 +1450,11 @@ class ExecutionResult(BaseModel):
     artifacts_created: List[str] = Field(default_factory=list)
     payload: Dict[str, Any] = Field(default_factory=dict)
     tokens_used: int = 0
-1.2. Provider Adapter Interfész és Mock (sdk/provider_adapter.py)
-Python
+```
+
+#### 15.1.2 Provider Adapter Interfész és Mock (`sdk/provider_adapter.py`)
+
+```python
 from abc import ABC, abstractmethod
 from typing import Dict
 
@@ -1414,8 +1506,11 @@ coverage_mapping:
         elif "Drift" in system_prompt:
             return "NO_DRIFT_DETECTED"
         return "Mock Response OK"
-1.3. Base Agent SDK (sdk/base_agent.py)
-Python
+```
+
+#### 15.1.3 Base Agent SDK (`sdk/base_agent.py`)
+
+```python
 import logging
 from abc import ABC, abstractmethod
 from contracts.events.base_event import BaseEvent, EventType
@@ -1473,9 +1568,13 @@ class BaseAgentSDK(ABC):
             correlation_id=correlation_id,
         )
         await self.bus.publish(event)
-2. ÁGENSEK ÉS SYSTEM PROMPTOK (agents/)
-2.1. System Promptok Regisztere (agents/prompts.py)
-Python
+```
+
+### 15.2 Ágensek és System Promptok (`agents/`)
+
+#### 15.2.1 System Promptok Regisztere (`agents/prompts.py`)
+
+```python
 ARCHITECT_SYSTEM_PROMPT = """
 Te vagy az ArchitectAgent.
 A SPEC_FORMAL.yaml és a Discovery adatok alapján készíts WORK_PACKAGE.yaml fájlt.
@@ -1506,8 +1605,11 @@ Te vagy a RetrospectiveCollector.
 Elemezd a lefutott sprint eredményeit, a retry számlálót és a tesztek kimenetét.
 Generálj strukturált tanulságot (what_worked, what_failed, carry_forward_note).
 """
-2.2. Architect Agent (agents/core/architect_agent.py)
-Python
+```
+
+#### 15.2.2 Architect Agent (`agents/core/architect_agent.py`)
+
+```python
 from pathlib import Path
 from agents.prompts import ARCHITECT_SYSTEM_PROMPT
 from contracts.events.base_event import BaseEvent, EventType
@@ -1545,8 +1647,11 @@ class ArchitectAgent(BaseAgentSDK):
             payload={"work_package_path": str(wp_path)},
             correlation_id=event.correlation_id,
         )
-2.3. Developer Agent (agents/core/developer_agent.py)
-Python
+```
+
+#### 15.2.3 Developer Agent (`agents/core/developer_agent.py`)
+
+```python
 from pathlib import Path
 from agents.prompts import DEVELOPER_SYSTEM_PROMPT
 from contracts.events.base_event import BaseEvent, EventType
@@ -1596,8 +1701,11 @@ class DeveloperAgent(BaseAgentSDK):
             },
             correlation_id=event.correlation_id,
         )
-2.4. Discovery Agent (agents/core/discovery_agent.py)
-Python
+```
+
+#### 15.2.4 Discovery Agent (`agents/core/discovery_agent.py`)
+
+```python
 from pathlib import Path
 from agents.prompts import DISCOVERY_SYSTEM_PROMPT
 from contracts.codebase_snapshot import CodebaseSnapshot
@@ -1644,8 +1752,11 @@ class DiscoveryAgent(BaseAgentSDK):
 
     async def process_event(self, event: BaseEvent) -> None:
         pass
-2.5. Drift Detector Agent (agents/core/drift_detector_agent.py)
-Python
+```
+
+#### 15.2.5 Drift Detector Agent (`agents/core/drift_detector_agent.py`)
+
+```python
 import ast
 from pathlib import Path
 from contracts.events.base_event import BaseEvent, EventType
@@ -1679,8 +1790,11 @@ class DriftDetectorAgent(BaseAgentSDK):
                 payload={"reason": f"Szintaktikai hiba a kódban: {err}"},
                 correlation_id=event.correlation_id,
             )
-2.6. Retrospective Collector (agents/core/retrospective_collector.py)
-Python
+```
+
+#### 15.2.6 Retrospective Collector (`agents/core/retrospective_collector.py`)
+
+```python
 from pathlib import Path
 import yaml
 from contracts.events.base_event import BaseEvent, EventType
@@ -1720,9 +1834,13 @@ class RetrospectiveCollector(BaseAgentSDK):
             payload={"retro_file": str(retro_file)},
             correlation_id=event.correlation_id,
         )
-3. RUNTIME MODUL (runtime/)
-3.1. Artefaktum Regiszter (runtime/artifacts.py)
-Python
+```
+
+### 15.3 Runtime Modul (`runtime/`)
+
+#### 15.3.1 Artefaktum Regiszter (`runtime/artifacts.py`)
+
+```python
 from pathlib import Path
 from typing import Any, Dict, List
 from pydantic import BaseModel, Field
@@ -1753,8 +1871,11 @@ class ArtifactRegistry(BaseModel):
         )
         self.artifacts.append(ref)
         return ref
-3.2. Test Runner Agent (runtime/test_runner.py)
-Python
+```
+
+#### 15.3.2 Test Runner Agent (`runtime/test_runner.py`)
+
+```python
 from pathlib import Path
 from contracts.events.base_event import BaseEvent, EventType
 from kernel.state.states import StateEnum
@@ -1812,8 +1933,11 @@ class TestRunnerAgent(BaseAgentSDK):
                 payload=test_payload,
                 correlation_id=event.correlation_id,
             )
-3.3. Git Driver (runtime/git_driver.py)
-Python
+```
+
+#### 15.3.3 Git Driver (`runtime/git_driver.py`)
+
+```python
 import subprocess
 from pathlib import Path
 
@@ -1841,9 +1965,13 @@ class GitDriver:
         self._run_git(["add", "."])
         code, _ = self._run_git(["commit", "-m", message])
         return code == 0
-4. WORKSPACE, SECURITY, PLANNING ÉS LESSONS MODULOK
-4.1. Project Detector (workspace/project_detector.py)
-Python
+```
+
+### 15.4 Workspace, Security, Planning és Lessons Modulok
+
+#### 15.4.1 Project Detector (`workspace/project_detector.py`)
+
+```python
 from pathlib import Path
 from typing import List
 from pydantic import BaseModel
@@ -1879,8 +2007,11 @@ def list_projects(
             if state_file.exists():
                 handles.append(ProjectHandle.from_state(state_file))
     return handles
-4.2. Secret Scanner (security/secret_scanner.py)
-Python
+```
+
+#### 15.4.2 Secret Scanner (`security/secret_scanner.py`)
+
+```python
 import re
 from pathlib import Path
 from typing import List
@@ -1905,8 +2036,11 @@ class SecretScanner:
                     f"Hardcode-olt titok észlelve a fájlban: {filepath.name}"
                 )
         return found
-4.3. Jogosultságkezelő (security/permission_manager.py)
-Python
+```
+
+#### 15.4.3 Jogosultságkezelő (`security/permission_manager.py`)
+
+```python
 from pathlib import Path
 from typing import List
 
@@ -1924,8 +2058,11 @@ class PermissionManager:
             ):
                 return True
         return False
-4.4. CLI Planner (planning/cli_planner.py)
-Python
+```
+
+#### 15.4.4 CLI Planner (`planning/cli_planner.py`)
+
+```python
 from contracts.spec_formal import RequirementItem, SpecFormal
 
 
@@ -1953,8 +2090,11 @@ class CLIPlanner:
                 )
             ],
         )
-4.5. Lessons Aggregator (lessons/aggregator.py)
-Python
+```
+
+#### 15.4.5 Lessons Aggregator (`lessons/aggregator.py`)
+
+```python
 from pathlib import Path
 import yaml
 
@@ -1987,9 +2127,13 @@ class LessonsAggregator:
         lessons_file.write_text(
             yaml.dump(data, sort_keys=False), encoding="utf-8"
         )
-5. FŐ INDÍTÓ SCRIPT ÉS GOLDEN PATH TESZT
-5.1. main.py
-Python
+```
+
+### 15.5 Fő Indító Script és Golden Path Teszt
+
+#### 15.5.1 `main.py`
+
+```python
 import asyncio
 from pathlib import Path
 from agents.core.architect_agent import ArchitectAgent
@@ -2129,8 +2273,11 @@ if __name__ == "__main__":
     else:
         print(f"[AI-SD-OS] No project found in {cwd}. Initializing runtime.")
         asyncio.run(run_pipeline(cwd))
-5.2. tests/test_golden_path.py
-Python
+```
+
+#### 15.5.2 `tests/test_golden_path.py`
+
+```python
 from pathlib import Path
 import pytest
 from main import run_pipeline
@@ -2148,7 +2295,19 @@ async def test_full_golden_path_e2e(tmp_path: Path):
     assert (project_dir / "src" / "app.py").exists()
     assert (project_dir / ".git").exists()
     assert (project_dir / ".ai-sd-os" / "ledger" / "chain.json").exists()
-A teljes 3 lépéses folyamat lezárult. A 1. LÉPÉS (README.md specifikáció), a 2. LÉPÉS (contracts/ és kernel/), valamint a 3. LÉPÉS (sdk/, agents/, runtime/, workspace/, security/, planning/, lessons/, main.py, tests/) kódbázisa hiánytalanul rendelkezésedre áll az AI-SD-OS V6.1.0 felépítéséhez.
+```
 
+---
 
+## Auditálási megjegyzés (V6.1.0 blueprint vs. tényleges kód)
 
+A fenti 14–15. fejezetek egy **tervezési blueprint**-et rögzítenek, amit egy korábbi generálási munkamenet hozott létre. A repóban ténylegesen megvalósított kód (lásd `kernel/`, `contracts/`, `agents/`, `main.py`) egy ettől eltérő, önmagában konzisztens változat, amely `Event`/`EventType`/`ProjectState` elnevezéseket használ a blueprint `BaseEvent`/`StateEnum`/`StateStore` helyett, és directory-native `.ai-sd-os/state.json`-t egy külön memóriabeli `StateStore` objektum helyett. A tényleges kód 8/8 zöld teszttel fut.
+
+A blueprint és a megvalósítás közötti — ebben a munkamenetben pótolt — legfontosabb eltérések:
+
+- `kernel/ledger/` (kriptográfiai hash-lánc) hiányzott, most bekerült és be van kötve az `EventBus`-ba.
+- `kernel/policy/policy_compiler.py` hiányzott — a `rules.yaml` / `security.yaml` / `execution.yaml` eddig nem volt semmihez sem kötve.
+- `kernel/swarm/` (AST lock + orchestrator) hiányzott, most bekerült.
+- `contracts/events/` réteg hiányzott — a payloadok eddig típusellenőrzés nélküli `Dict[str, Any]` mezők voltak.
+
+A `kernel/checkpoint/checkpoint_manager.py`-ban egy szintaktikai hiba volt (`get_latest_checkpoint(()`), ami importáláskor `SyntaxError`-t dobott volna, ha bárhonnan importálja valaki — jelenleg semmi nem importálja, ezért nem bukott le a tesztekben. Ez is javításra került.

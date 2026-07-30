@@ -6,6 +6,7 @@ from contracts.spec_formal import SpecFormal, RequirementItem, PriorityEnum
 from contracts.work_package import WorkPackage, TaskItem
 from contracts.definition_of_done import DefinitionOfDone, DoDCriterion
 from kernel.contracts.serializer import save_yaml_contract
+from kernel.swarm.orchestrator import SwarmOrchestrator
 
 PRIORITY_WEIGHT = {
     PriorityEnum.HIGH: 3,
@@ -79,6 +80,10 @@ class ArchitectAgent(BaseAgentSDK):
         req_dicts = [r.model_dump() for r in selected_reqs]
         dod_str_list = [f"{c.id}: {c.description}" for c in dod.criteria]
 
+        # Swarm partícionálás: melyik taskok futtathatók biztonságosan párhuzamosan
+        orchestrator = SwarmOrchestrator()
+        task_groups = orchestrator.partition_tasks(wp.tasks)
+
         await self.emit_event(
             event_type=EventType.WORKPACKAGE_CREATED,
             payload={
@@ -86,7 +91,8 @@ class ArchitectAgent(BaseAgentSDK):
                 "definition_of_done": dod.model_dump(),
                 "selected_requirements": req_dicts,
                 "dod_list": dod_str_list,
-                "project_root": str(project_root)
+                "project_root": str(project_root),
+                "task_groups": [[t.task_id for t in group] for group in task_groups],
             },
             correlation_id=event.correlation_id
         )

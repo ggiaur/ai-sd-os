@@ -6,6 +6,10 @@ from contracts.work_package import WorkPackage
 from runtime.sandbox import SubprocessSandbox
 
 class TestRunnerAgent(BaseAgentSDK):
+    def __init__(self, name: str, bus, provider, max_retries: int = 3):
+        self.max_retries = max_retries
+        super().__init__(name, bus, provider)
+
     def register_subscriptions(self) -> None:
         self.bus.subscribe(EventType.DEVELOPMENT_COMPLETED, self.process_event)
 
@@ -55,7 +59,7 @@ class TestRunnerAgent(BaseAgentSDK):
                     "project_root": str(project_root),
                     "error": error_msg,
                     "retry_count": retry_count,
-                    "max_retries": 3
+                    "max_retries": self.max_retries
                 },
                 correlation_id=event.correlation_id
             )

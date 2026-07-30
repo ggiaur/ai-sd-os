@@ -15,6 +15,8 @@ from kernel.event_bus.events import Event, EventType
 from kernel.state.states import ProjectState
 from kernel.state.validators import validate_transition
 from kernel.hitl.gate_manager import HITLGateManager
+from kernel.ledger.ledger_chain import LedgerChain
+from kernel.policy.policy_compiler import PolicyCompiler
 from workspace.project_detector import detect_project, list_projects, save_project_state
 from planning.cli_planner import CLIPlanner
 from agents.discovery_agent import DiscoveryAgent
@@ -29,7 +31,9 @@ class EngineRunner:
     def __init__(self, cwd: Path, config: KernelConfig):
         self.cwd = cwd
         self.config = config
-        self.bus = EventBus()
+        self.policy = PolicyCompiler(policy_dir=MOTOR_DIR / "kernel" / "policy").compile()
+        self.ledger = LedgerChain(cwd / ".ai-sd-os" / "ledger" / "chain.json")
+        self.bus = EventBus(ledger=self.ledger)
 
         # Provider setup
         if config.mock_mode or not config.api_key:
@@ -39,10 +43,15 @@ class EngineRunner:
 
         # Initialize HITL Gate Manager & Agents
         self.gate_manager = HITLGateManager(self.bus, auto_approve=config.mock_mode)
-        self.discovery_agent = DiscoveryAgent("DiscoveryAgent", self.bus, self.provider)
+        self.discovery_agent = DiscoveryAgent(
+            "DiscoveryAgent", self.bus, self.provider,
+            secret_scan_patterns=self.policy.security.secret_scan.patterns or None,
+        )
         self.architect_agent = ArchitectAgent("ArchitectAgent", self.bus, self.provider)
         self.developer_agent = DeveloperAgent("DeveloperAgent", self.bus, self.provider)
-        self.test_runner = TestRunnerAgent("TestRunnerAgent", self.bus, self.provider)
+        self.test_runner = TestRunnerAgent(
+            "TestRunnerAgent", self.bus, self.provider, max_retries=self.policy.execution.max_retries
+        )
         self.git_driver = GitDriver("GitDriver", self.bus, self.provider)
         self.retro_collector = RetrospectiveCollector("RetrospectiveCollector", self.bus, self.provider)
 
