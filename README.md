@@ -477,7 +477,851 @@ MIT License — szabad felhasználás, módosítás és terjesztés.
 
 
 
+2. LÉPÉS: contracts/ ÉS kernel/ MODULOK TELJES PYTHON KÓDJA
+1. FORMÁLIS SZERZŐDÉSEK ÉS ESEMÉNYEK (contracts/)
+1.1. Alap Esemény Modell (contracts/events/base_event.py)
+Python
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict
+from uuid import uuid4
+from pydantic import BaseModel, Field
 
+
+class EventType(str, Enum):
+    # Rendszer & Életciklus Események
+    SYSTEM_INITIALIZED = "system.initialized"
+    DISCOVERY_COMPLETED = "discovery.completed"
+    CODEBASE_SURVEYED = "codebase.surveyed"
+    SPEC_CREATED = "spec.created"
+    WORKPACKAGE_CREATED = "workpackage.created"
+
+    # Human-in-the-Loop Kapu Események
+    SPRINT_PLANNING_PROPOSED = "sprint.planning.proposed"
+    SPRINT_PLANNING_APPROVED = "sprint.planning.approved"
+    SPRINT_REVIEW_REQUESTED = "sprint.review.requested"
+    SPRINT_REVIEW_APPROVED = "sprint.review.approved"
+    PIPELINE_BLOCKED = "pipeline.blocked"
+    ACTION_DESTRUCTIVE_REQUESTED = "action.destructive.requested"
+
+    # Fejlesztési & Tesztelési Események
+    DEVELOPMENT_STARTED = "development.started"
+    DEVELOPMENT_COMPLETED = "development.completed"
+    TESTS_PASSED = "tests.passed"
+    TESTS_FAILED = "tests.failed"
+    DRIFT_DETECTED = "architecture.drift_detected"
+
+    # Tanulási & Rendszer Hiba Események
+    RETROSPECTIVE_RECORDED = "retrospective.recorded"
+    LESSONS_LEARNED_UPDATED = "lessons.learned.updated"
+    SYSTEM_ERROR = "system.error"
+
+
+class BaseEvent(BaseModel):
+    event_id: str = Field(default_factory=lambda: str(uuid4()))
+    event_type: EventType
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+    sender_id: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    correlation_id: str = Field(default_factory=lambda: str(uuid4()))
+1.2. Specifikációs Események (contracts/events/spec_events.py)
+Python
+from typing import Dict, Any
+from pydantic import Field
+from contracts.events.base_event import BaseEvent, EventType
+
+
+class SpecCreatedEvent(BaseEvent):
+    event_type: EventType = EventType.SPEC_CREATED
+    payload: Dict[str, Any] = Field(
+        ..., description="Köteles tartalmazni a 'spec_path' kulcsot."
+    )
+
+
+class DiscoveryCompletedEvent(BaseEvent):
+    event_type: EventType = EventType.DISCOVERY_COMPLETED
+    payload: Dict[str, Any] = Field(
+        ..., description="Köteles tartalmazni a 'discovery_summary' kulcsot."
+    )
+
+
+class CodebaseSurveyedEvent(BaseEvent):
+    event_type: EventType = EventType.CODEBASE_SURVEYED
+    payload: Dict[str, Any] = Field(
+        ..., description="Köteles tartalmazni a 'snapshot_path' kulcsot."
+    )
+1.3. Sprint & Fejlesztési Események (contracts/events/sprint_events.py)
+Python
+from typing import Dict, Any
+from pydantic import Field
+from contracts.events.base_event import BaseEvent, EventType
+
+
+class WorkPackageCreatedEvent(BaseEvent):
+    event_type: EventType = EventType.WORKPACKAGE_CREATED
+    payload: Dict[str, Any] = Field(
+        ..., description="Tartalmazza a 'work_package_path' kulcsot."
+    )
+
+
+class DevelopmentCompletedEvent(BaseEvent):
+    event_type: EventType = EventType.DEVELOPMENT_COMPLETED
+    payload: Dict[str, Any] = Field(
+        ..., description="Tartalmazza a 'code_file' és 'modified_files' kulcsokat."
+    )
+
+
+class TestsPassedEvent(BaseEvent):
+    event_type: EventType = EventType.TESTS_PASSED
+    payload: Dict[str, Any] = Field(
+        ..., description="Tartalmazza a 'workspace', 'exit_code', 'stdout' kulcsokat."
+    )
+
+
+class TestsFailedEvent(BaseEvent):
+    event_type: EventType = EventType.TESTS_FAILED
+    payload: Dict[str, Any] = Field(
+        ..., description="Tartalmazza az 'exit_code', 'stderr' és 'retry_count' kulcsokat."
+    )
+1.4. Kapu & Eszkalációs Események (contracts/events/gate_events.py)
+Python
+from typing import Dict, Any
+from pydantic import Field
+from contracts.events.base_event import BaseEvent, EventType
+
+
+class SprintPlanningProposedEvent(BaseEvent):
+    event_type: EventType = EventType.SPRINT_PLANNING_PROPOSED
+    payload: Dict[str, Any] = Field(
+        ..., description="Tartalmazza a 'work_package_id' és 'sprint_goal' mezőket."
+    )
+
+
+class SprintPlanningApprovedEvent(BaseEvent):
+    event_type: EventType = EventType.SPRINT_PLANNING_APPROVED
+
+
+class SprintReviewRequestedEvent(BaseEvent):
+    event_type: EventType = EventType.SPRINT_REVIEW_REQUESTED
+
+
+class SprintReviewApprovedEvent(BaseEvent):
+    event_type: EventType = EventType.SPRINT_REVIEW_APPROVED
+
+
+class PipelineBlockedEvent(BaseEvent):
+    event_type: EventType = EventType.PIPELINE_BLOCKED
+    payload: Dict[str, Any] = Field(
+        ..., description="Tartalmazza a 'reason' és 'last_error' mezőket."
+    )
+1.5. Formális Specifikáció Szerződés (contracts/spec_formal.py)
+Python
+from typing import List
+from pydantic import BaseModel, Field
+
+
+class RequirementItem(BaseModel):
+    id: str = Field(
+        ...,
+        pattern=r"^FR-[0-9]{3,}$",
+        description="Követelmény azonosító (pl. FR-001)",
+    )
+    title: str = Field(..., min_length=3, description="Rövid megnevezés")
+    description: str = Field(..., min_length=5, description="Részletes leírás")
+    priority: str = Field(
+        default="HIGH",
+        pattern=r"^(HIGH|MEDIUM|LOW)$",
+        description="Prioritási szint",
+    )
+    status: str = Field(
+        default="PENDING",
+        pattern=r"^(PENDING|IN_PROGRESS|SATISFIED|DEPRECATED)$",
+        description="Teljesítési státusz",
+    )
+
+
+class SpecFormal(BaseModel):
+    id: str = Field(default="SPEC-001", pattern=r"^SPEC-[0-9]{3,}$")
+    project_name: str = Field(..., min_length=2)
+    project_goal: str = Field(..., min_length=10)
+    tech_stack: List[str] = Field(..., min_items=1)
+    requirements: List[RequirementItem] = Field(..., min_items=1)
+1.6. Munkacsomag Szerződés (contracts/work_package.py)
+Python
+from typing import Dict, List
+from pydantic import BaseModel, Field
+
+
+class WorkPackageTask(BaseModel):
+    task_id: str = Field(..., pattern=r"^TASK-[0-9]{3,}$")
+    description: str = Field(..., min_length=5)
+    requirement_ref: str = Field(..., pattern=r"^FR-[0-9]{3,}$")
+
+
+class WorkPackage(BaseModel):
+    id: str = Field(..., pattern=r"^WP-[0-9]{3,}$")
+    sprint_id: str = Field(..., pattern=r"^SPRINT-[0-9]{3,}$")
+    goal: str = Field(..., min_length=5)
+    allowed_paths: List[str] = Field(..., min_items=1)
+    tasks: List[WorkPackageTask] = Field(..., min_items=1)
+    max_execution_time_minutes: int = Field(default=30, le=120)
+    tests_required: bool = True
+    coverage_mapping: Dict[str, List[str]] = Field(
+        ...,
+        description="FR-XXX azonosítók lefedése konkrét tesztfüggvény nevekkel.",
+    )
+1.7. Definition of Done Szerződés (contracts/definition_of_done.py)
+Python
+from typing import List
+from pydantic import BaseModel, Field
+
+
+class DoDCriterion(BaseModel):
+    id: str = Field(..., pattern=r"^DOD-[0-9]{3,}$")
+    description: str = Field(..., min_length=5)
+    automated_check: bool = Field(
+        default=True, description="Automatizált-e az ellenőrzés"
+    )
+    passed: bool = Field(
+        default=False, description="Teljesült-e a kritérium"
+    )
+
+
+class DefinitionOfDone(BaseModel):
+    work_package_ref: str = Field(..., pattern=r"^WP-[0-9]{3,}$")
+    criteria: List[DoDCriterion] = Field(..., min_items=1)
+
+    def is_fully_satisfied(self) -> bool:
+        return all(c.passed for c in self.criteria)
+1.8. Kódbázis Felmérési Szerződés (contracts/codebase_snapshot.py)
+Python
+from typing import List
+from pydantic import BaseModel, Field
+
+
+class SecuritySnapshot(BaseModel):
+    risk_flags: List[str] = Field(default_factory=list)
+    secret_scan_status: str = Field(default="CLEAN")
+
+
+class TechnicalDebtSnapshot(BaseModel):
+    missing_tests: List[str] = Field(default_factory=list)
+    no_type_hints: bool = False
+
+
+class CodebaseSnapshot(BaseModel):
+    project_path: str
+    languages: List[str] = Field(..., min_items=1)
+    frameworks: List[str] = Field(default_factory=list)
+    databases: List[str] = Field(default_factory=list)
+    architecture: str = Field(default="monolith")
+    dependencies_count: int = 0
+    security: SecuritySnapshot = Field(default_factory=SecuritySnapshot)
+    technical_debt: TechnicalDebtSnapshot = Field(
+        default_factory=TechnicalDebtSnapshot
+    )
+    has_readme: bool = True
+    has_dockerfile: bool = False
+1.9. Nyomonkövethetőségi Mátrix (contracts/traceability_matrix.py)
+Python
+from typing import List
+from pydantic import BaseModel, Field
+
+
+class TraceabilityLink(BaseModel):
+    requirement_id: str = Field(..., pattern=r"^FR-[0-9]{3,}$")
+    work_package_id: str = Field(..., pattern=r"^WP-[0-9]{3,}$")
+    task_id: str = Field(..., pattern=r"^TASK-[0-9]{3,}$")
+    source_file: str
+    test_function: str
+
+
+class TraceabilityMatrix(BaseModel):
+    project_id: str
+    links: List[TraceabilityLink] = Field(default_factory=list)
+
+    def get_links_for_requirement(
+        self, req_id: str
+    ) -> List[TraceabilityLink]:
+        return [link for link in self.links if link.requirement_id == req_id]
+2. KERNEL MAG ÉS RENDSZERMÓDULOK (kernel/)
+2.1. Konfiguráció (kernel/system/config.py)
+Python
+from pathlib import Path
+from pydantic import BaseModel, Field
+
+
+class KernelConfig(BaseModel):
+    constitution_text: str = Field(..., description="Alkotmány szövege")
+    max_retries: int = Field(default=3, ge=1, description="Max újrapróbálkozás")
+    checkpoint_enabled: bool = True
+    storage_dir: Path = Field(default=Path("./runtime"))
+    max_budget_usd: float = Field(default=100.0, ge=0.0)
+    enforce_decision_freeze: bool = True
+2.2. Aszinkron EventBus Engine (kernel/event_bus/bus.py)
+Python
+import asyncio
+import logging
+from collections import defaultdict
+from typing import Awaitable, Callable, Dict, List
+from contracts.events.base_event import BaseEvent, EventType
+
+logger = logging.getLogger("Kernel.EventBus")
+HandlerFunc = Callable[[BaseEvent], Awaitable[None]]
+
+
+class EventBus:
+
+    def __init__(self) -> None:
+        self._subscribers: Dict[EventType, List[HandlerFunc]] = defaultdict(
+            list
+        )
+        self._queue: asyncio.Queue[BaseEvent] = asyncio.Queue()
+        self._running: bool = False
+        self._worker_task: asyncio.Task[None] | None = None
+
+    def subscribe(self, event_type: EventType, handler: HandlerFunc) -> None:
+        self._subscribers[event_type].append(handler)
+
+    async def publish(self, event: BaseEvent) -> None:
+        await self._queue.put(event)
+
+    async def start(self) -> None:
+        self._running = True
+        self._worker_task = asyncio.create_task(self._process_queue())
+
+    async def stop(self) -> None:
+        self._running = False
+        await self._queue.join()
+        if self._worker_task:
+            self._worker_task.cancel()
+
+    async def _process_queue(self) -> None:
+        while self._running or not self._queue.empty():
+            try:
+                event = await asyncio.wait_for(self._queue.get(), timeout=0.1)
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+
+            handlers = self._subscribers.get(event.event_type, [])
+            for handler in handlers:
+                try:
+                    await handler(event)
+                except Exception as err:
+                    logger.error(
+                        f"[EVENT ERROR] A '{handler.__name__}' handler elbukott a "
+                        f"'{event.event_type.value}' eseményen: {err}",
+                        exc_info=True,
+                    )
+            self._queue.task_done()
+2.3. Állapotok Definíciója (kernel/state/states.py)
+Python
+from enum import Enum
+
+
+class StateEnum(str, Enum):
+    INIT = "INIT"
+    DISCOVERY = "DISCOVERY"
+    SPEC = "SPEC"
+    WORK_PACKAGE = "WORK_PACKAGE"
+    SPRINT_PLANNING = "SPRINT_PLANNING"
+    DEVELOPMENT = "DEVELOPMENT"
+    TEST = "TEST"
+    BLOCKED = "BLOCKED"
+    SPRINT_REVIEW = "SPRINT_REVIEW"
+    PR_CREATED = "PR_CREATED"
+    RETROSPECTIVE = "RETROSPECTIVE"
+    DONE = "DONE"
+2.4. Állapotátmeneti Mátrix (kernel/state/transitions.py)
+Python
+from typing import Dict, Set
+from kernel.state.states import StateEnum
+
+ALLOWED_TRANSITIONS: Dict[StateEnum, Set[StateEnum]] = {
+    StateEnum.INIT: {StateEnum.DISCOVERY},
+    StateEnum.DISCOVERY: {StateEnum.SPEC},
+    StateEnum.SPEC: {StateEnum.WORK_PACKAGE},
+    StateEnum.WORK_PACKAGE: {StateEnum.SPRINT_PLANNING},
+    StateEnum.SPRINT_PLANNING: {StateEnum.DEVELOPMENT, StateEnum.WORK_PACKAGE},
+    StateEnum.DEVELOPMENT: {StateEnum.TEST},
+    StateEnum.TEST: {
+        StateEnum.SPRINT_REVIEW,
+        StateEnum.DEVELOPMENT,
+        StateEnum.BLOCKED,
+    },
+    StateEnum.BLOCKED: {StateEnum.DEVELOPMENT, StateEnum.WORK_PACKAGE},
+    StateEnum.SPRINT_REVIEW: {StateEnum.PR_CREATED, StateEnum.DEVELOPMENT},
+    StateEnum.PR_CREATED: {StateEnum.RETROSPECTIVE},
+    StateEnum.RETROSPECTIVE: {StateEnum.WORK_PACKAGE, StateEnum.DONE},
+    StateEnum.DONE: set(),
+}
+2.5. Állapot-Validátorok és Tároló (kernel/state/validators.py & kernel/state/state_store.py)
+Python
+# kernel/state/validators.py
+from kernel.state.states import StateEnum
+from kernel.state.transitions import ALLOWED_TRANSITIONS
+
+
+class InvalidStateTransitionError(Exception):
+    pass
+
+
+def validate_transition(
+    current_state: StateEnum, new_state: StateEnum
+) -> None:
+    allowed = ALLOWED_TRANSITIONS.get(current_state, set())
+    if new_state not in allowed:
+        raise InvalidStateTransitionError(
+            f"Érvénytelen állapotváltás: {current_state.value} -> {new_state.value}. "
+            f"Engedélyezett átmenetek: {[s.value for s in allowed]}"
+        )
+
+
+# kernel/state/state_store.py
+from typing import Any, Dict, Optional
+from kernel.state.states import StateEnum
+from kernel.state.validators import validate_transition
+
+
+class StateStore:
+
+    def __init__(self) -> None:
+        self._current_state: StateEnum = StateEnum.INIT
+        self._context_data: Dict[str, Any] = {}
+
+    @property
+    def current_state(self) -> StateEnum:
+        return self._current_state
+
+    def transition_to(self, new_state: StateEnum) -> None:
+        validate_transition(self._current_state, new_state)
+        self._current_state = new_state
+
+    def set_data(self, key: str, value: Any) -> None:
+        self._context_data[key] = value
+
+    def get_data(self, key: str) -> Optional[Any]:
+        return self._context_data.get(key)
+2.6. Kriptográfiai Execution Ledger (kernel/ledger/ledger_chain.py)
+Python
+import hashlib
+import json
+from pathlib import Path
+from typing import Any, Dict, List
+from pydantic import BaseModel, Field
+from contracts.events.base_event import BaseEvent
+
+
+class LedgerBlock(BaseModel):
+    sequence_number: int
+    previous_hash: str
+    current_hash: str
+    event_data: Dict[str, Any]
+
+
+class LedgerChain:
+
+    def __init__(
+        self, storage_path: Path = Path("./.ai-sd-os/ledger/chain.json")
+    ):
+        self.storage_path = storage_path
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        self.chain: List[LedgerBlock] = self._load_chain()
+
+    def _load_chain(self) -> List[LedgerBlock]:
+        if not self.storage_path.exists():
+            return []
+        data = json.loads(self.storage_path.read_text(encoding="utf-8"))
+        return [LedgerBlock(**block) for block in data]
+
+    def _save_chain(self) -> None:
+        data = [block.model_dump(mode="json") for block in self.chain]
+        self.storage_path.write_text(
+            json.dumps(data, indent=2), encoding="utf-8"
+        )
+
+    def append_event(self, event: BaseEvent) -> LedgerBlock:
+        previous_hash = (
+            self.chain[-1].current_hash
+            if self.chain
+            else "0" * 64
+        )
+        seq = len(self.chain) + 1
+
+        payload_bytes = json.dumps(
+            event.model_dump(mode="json"), sort_keys=True
+        ).encode("utf-8")
+        current_hash = hashlib.sha256(
+            f"{previous_hash}{event.timestamp}{event.sender_id}{payload_bytes}".encode(
+                "utf-8"
+            )
+        ).hexdigest()
+
+        block = LedgerBlock(
+            sequence_number=seq,
+            previous_hash=previous_hash,
+            current_hash=current_hash,
+            event_data=event.model_dump(mode="json"),
+        )
+        self.chain.append(block)
+        self._save_chain()
+        return block
+
+    def verify_integrity(self) -> bool:
+        for i in range(1, len(self.chain)):
+            prev = self.chain[i - 1]
+            curr = self.chain[i]
+            if curr.previous_hash != prev.current_hash:
+                return False
+        return True
+2.7. Szemantikai Replay Engine (kernel/ledger/replay_engine.py)
+Python
+import ast
+from pathlib import Path
+
+
+class SemanticReplayEngine:
+
+    @staticmethod
+    def verify_ast_equivalence(
+        original_code: str, replayed_code: str
+    ) -> bool:
+        """Összehasonlítja két Python kód Absztrakt Szintaxisfáját."""
+        try:
+            tree_orig = ast.parse(original_code)
+            tree_repl = ast.parse(replayed_code)
+            return ast.dump(tree_orig, annotate_fields=False) == ast.dump(
+                tree_repl, annotate_fields=False
+            )
+        except SyntaxError:
+            return False
+
+    @staticmethod
+    def verify_test_pass(workspace_path: Path, test_command: str) -> bool:
+        import subprocess
+
+        res = subprocess.run(
+            test_command, shell=True, cwd=workspace_path, capture_output=True
+        )
+        return res.returncode == 0
+2.8. Policy Compiler (kernel/policy/policy_compiler.py)
+Python
+from pathlib import Path
+from typing import Any, Dict
+from pydantic import BaseModel, Field
+import yaml
+
+
+class CompiledPolicy(BaseModel):
+    require_human_sprint_planning: bool = True
+    require_human_sprint_review: bool = True
+    max_retries_before_block: int = 3
+    secret_scan_strict: bool = True
+    allowed_file_extensions: list[str] = Field(
+        default_factory=lambda: [".py", ".yaml", ".json", ".md"]
+    )
+
+
+class PolicyCompiler:
+
+    def __init__(self, policy_dir: Path = Path("./kernel/policy")):
+        self.policy_dir = policy_dir
+
+    def compile(self) -> CompiledPolicy:
+        rules_file = self.policy_dir / "rules.yaml"
+        if not rules_file.exists():
+            return CompiledPolicy()
+
+        content = yaml.safe_load(rules_file.read_text(encoding="utf-8")) or {}
+        return CompiledPolicy(**content)
+2.9. Human-in-the-Loop Kapukezelő (kernel/hitl/gate_manager.py)
+Python
+import logging
+from contracts.events.base_event import BaseEvent, EventType
+from kernel.event_bus.bus import EventBus
+from kernel.state.state_enum import StateEnum
+from kernel.state.state_store import StateStore
+
+logger = logging.getLogger("Kernel.HITLGateManager")
+
+
+class HITLGateManager:
+
+    def __init__(self, bus: EventBus, store: StateStore):
+        self.bus = bus
+        self.store = store
+        self._register_subscriptions()
+
+    def register_subscriptions(self) -> None:
+        self.bus.subscribe(EventType.WORKPACKAGE_CREATED, self._on_wp_created)
+        self.bus.subscribe(EventType.TESTS_PASSED, self._on_tests_passed)
+        self.bus.subscribe(
+            EventType.TESTS_FAILED, self._check_max_retries
+        )
+
+    async def _on_wp_created(self, event: BaseEvent) -> None:
+        self.store.transition_to(StateEnum.SPRINT_PLANNING)
+        await self.bus.publish(
+            BaseEvent(
+                event_type=EventType.SPRINT_PLANNING_PROPOSED,
+                sender_id="gate_manager",
+                payload=event.payload,
+                correlation_id=event.correlation_id,
+            )
+        )
+
+    async def _on_tests_passed(self, event: BaseEvent) -> None:
+        self.store.transition_to(StateEnum.SPRINT_REVIEW)
+        await self.bus.publish(
+            BaseEvent(
+                event_type=EventType.SPRINT_REVIEW_REQUESTED,
+                sender_id="gate_manager",
+                payload=event.payload,
+                correlation_id=event.correlation_id,
+            )
+        )
+
+    async def _check_max_retries(self, event: BaseEvent) -> None:
+        retry_count = event.payload.get("retry_count", 0)
+        max_retries = event.payload.get("max_retries", 3)
+        if retry_count >= max_retries:
+            self.store.transition_to(StateEnum.BLOCKED)
+            await self.bus.publish(
+                BaseEvent(
+                    event_type=EventType.PIPELINE_BLOCKED,
+                    sender_id="gate_manager",
+                    payload={"reason": "Max retry limit reached", "last_error": event.payload.get("stderr", "")},
+                    correlation_id=event.correlation_id,
+                )
+            )
+2.10. CLI Prompts (kernel/hitl/cli_prompts.py)
+Python
+class CLIPromptEngine:
+
+    @staticmethod
+    def prompt_sprint_planning(wp_id: str, goal: str) -> bool:
+        print("\n" + "=" * 56)
+        print(f"  SPRINT PLANNING — {wp_id}")
+        print("=" * 56)
+        print(f"Cél: {goal}")
+        choice = (
+            input("[j] Jóváhagyom, indulhat  |  [n] Elutasítom > ")
+            .strip()
+            .lower()
+        )
+        return choice == "j"
+
+    @staticmethod
+    def prompt_sprint_review(wp_id: str) -> bool:
+        print("\n" + "=" * 56)
+        print(f"  SPRINT REVIEW — {wp_id}")
+        print("=" * 56)
+        print("Minden automatizált teszt zöld.")
+        choice = (
+            input("[j] Elfogadom, commit-olhat  |  [n] Elutasítom > ")
+            .strip()
+            .lower()
+        )
+        return choice == "j"
+2.11. Swarm Párhuzamos Végrehajtó (kernel/swarm/orchestrator.py & ast_locker.py)
+Python
+# kernel/swarm/ast_locker.py
+from typing import Dict, Set
+
+
+class ASTLocker:
+
+    def __init__(self) -> None:
+        self._locks: Dict[str, Set[str]] = {}  # filepath -> set of node_ids
+
+    def acquire_lock(self, filepath: str, node_id: str) -> bool:
+        if filepath not in self._locks:
+            self._locks[filepath] = set()
+        if node_id in self._locks[filepath]:
+            return False
+        self._locks[filepath].add(node_id)
+        return True
+
+    def release_lock(self, filepath: str, node_id: str) -> None:
+        if filepath in self._locks and node_id in self._locks[filepath]:
+            self._locks[filepath].remove(node_id)
+
+
+# kernel/swarm/orchestrator.py
+from typing import List
+from contracts.work_package import WorkPackageTask
+from kernel.swarm.ast_locker import ASTLocker
+
+
+class SwarmOrchestrator:
+
+    def __init__(self) -> None:
+        self.locker = ASTLocker()
+
+    def partition_tasks(
+        self, tasks: List[WorkPackageTask]
+    ) -> List[List[WorkPackageTask]]:
+        """Párhuzamosan futtatható feladatcsoportokra bontja a taskokat."""
+        # MVP: Minden task független csoportba kerül, ha nincs zárolási ütközés
+        return [[t] for t in tasks]
+2.12. Szoftverszerződés Validátor (kernel/contracts/validator.py)
+Python
+from typing import Any, Dict, Type, TypeVar
+from pydantic import BaseModel, ValidationError
+import yaml
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class ContractValidationError(Exception):
+    pass
+
+
+class ContractValidator:
+
+    @staticmethod
+    def validate_dict(data: Dict[str, Any], schema_cls: Type[T]) -> T:
+        try:
+            return schema_cls(**data)
+        except ValidationError as err:
+            raise ContractValidationError(
+                f"Szerződés validációs hiba [{schema_cls.__name__}]:\n{err}"
+            ) from err
+
+    @staticmethod
+    def validate_yaml_string(yaml_content: str, schema_cls: Type[T]) -> T:
+        try:
+            parsed_data = yaml.safe_load(yaml_content)
+            if not isinstance(parsed_data, dict):
+                raise ContractValidationError(
+                    "A YAML tartalomnak szótárnak (dict) kell lennie."
+                )
+            return ContractValidator.validate_dict(parsed_data, schema_cls)
+        except yaml.YAMLError as err:
+            raise ContractValidationError(
+                f"Hibás YAML formátum: {err}"
+            ) from err
+2.13. Szerződés Szerializáló (kernel/contracts/serializer.py)
+Python
+from pathlib import Path
+from typing import Type, TypeVar
+from pydantic import BaseModel
+import yaml
+from kernel.contracts.validator import ContractValidator, ContractValidationError
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class ContractSerializer:
+
+    @staticmethod
+    def save_yaml(model: BaseModel, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = model.model_dump(mode="json")
+        yaml_content = yaml.dump(data, sort_keys=False, allow_unicode=True)
+        path.write_text(yaml_content, encoding="utf-8")
+
+    @staticmethod
+    def load_yaml(path: Path, model_cls: Type[T]) -> T:
+        if not path.exists():
+            raise ContractValidationError(
+                f"A szerződés fájl nem létezik: {path}"
+            )
+        content = path.read_text(encoding="utf-8")
+        return ContractValidator.validate_yaml_string(content, model_cls)
+2.14. Budget Controller (kernel/economics/budget_controller.py)
+Python
+from pydantic import BaseModel, Field
+
+
+class BudgetController(BaseModel):
+    max_budget_usd: float = Field(default=100.0)
+    consumed_usd: float = Field(default=0.0)
+
+    def record_consumption(self, usd_cost: float) -> None:
+        self.consumed_usd += usd_cost
+
+    def is_economy_mode_required(self) -> bool:
+        remaining_pct = (
+            (self.max_budget_usd - self.consumed_usd) / self.max_budget_usd
+        ) * 100
+        return remaining_pct < 10.0
+
+    def is_budget_exhausted(self) -> bool:
+        return self.consumed_usd >= self.max_budget_usd
+2.15. Stratégiai Érték-Becslő (kernel/economics/value_evaluator.py)
+Python
+from pydantic import BaseModel, Field
+
+
+class ValueModel(BaseModel):
+    business_value: float = Field(..., ge=1.0, le=10.0)
+    expected_revenue: float = Field(..., ge=1.0, le=100.0)
+    maintenance_cost: float = Field(..., ge=1.0, le=10.0)
+    technical_risk: float = Field(..., ge=1.0, le=10.0)
+
+
+class StrategicValueEvaluator:
+
+    @staticmethod
+    def calculate_index(model: ValueModel) -> float:
+        """Kiszámítja a V_strategic indexet: (B_value * R_expected) / (C_maint * T_risk)."""
+        return (model.business_value * model.expected_revenue) / (
+            model.maintenance_cost * model.technical_risk
+        )
+
+    @classmethod
+    def evaluate_go_no_go(cls, model: ValueModel) -> str:
+        v_idx = cls.calculate_index(model)
+        if v_idx >= 15.0:
+            return "GO"
+        elif v_idx >= 8.0:
+            return "REWORK"
+        return "CANCEL"
+2.16. Checkpoint Kezelő Engine (kernel/checkpoint/checkpoint_manager.py)
+Python
+import json
+from pathlib import Path
+from typing import Any, Dict, Optional
+from pydantic import BaseModel
+
+
+class Checkpoint(BaseModel):
+    checkpoint_id: str
+    state: str
+    context_data: Dict[str, Any]
+
+
+class CheckpointManager:
+
+    def __init__(
+        self, storage_dir: Path = Path("./.ai-sd-os/checkpoints")
+    ):
+        self.storage_dir = storage_dir
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+
+    def save(
+        self, checkpoint_id: str, state: str, context_data: Dict[str, Any]
+    ) -> Checkpoint:
+        cp = Checkpoint(
+            checkpoint_id=checkpoint_id,
+            state=state,
+            context_data=context_data,
+        )
+        filepath = self.storage_dir / f"{checkpoint_id}.json"
+        filepath.write_text(cp.model_dump_json(indent=2), encoding="utf-8")
+        return cp
+
+    def restore(self, checkpoint_id: str) -> Optional[Checkpoint]:
+        filepath = self.storage_dir / f"{checkpoint_id}.json"
+        if not filepath.exists():
+            return None
+        data = json.loads(filepath.read_text(encoding="utf-8"))
+        return Checkpoint(**data)
 
 
 
