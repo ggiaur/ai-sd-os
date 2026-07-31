@@ -104,7 +104,7 @@ class MockProviderAdapter(AIProvider):
         return AnalysisResult(summary="Mock analysis", key_findings=["All clear"], metadata={})
 
 class AnthropicAdapter(AIProvider):
-    def __init__(self, api_key: str, model: str = "claude-sonnet-5"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         self.api_key = api_key
         self.model = model
 

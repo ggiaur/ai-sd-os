@@ -29,6 +29,7 @@ from agents.retrospective_collector import RetrospectiveCollector
 from sdk.provider_adapter import MockProviderAdapter, AnthropicAdapter, ClaudeCodeCLIAdapter
 from kernel.system.answer_log import write_answer
 from kernel.system.version import __version__
+from sdk.model_validator import validate_models
 
 class EngineRunner:
     def __init__(self, cwd: Path, config: KernelConfig):
@@ -51,6 +52,16 @@ class EngineRunner:
         else:
             self.provider = MockProviderAdapter()
 
+        # One real API call per configured model at startup — model IDs and
+        # pricing change over time; this catches a deprecated/renamed model
+        # here, loudly, instead of failing confusingly mid-sprint.
+        if not config.mock_mode and config.api_key and config.validate_models_at_startup:
+            validate_models(config.api_key, {
+                "light_model": config.light_model,
+                "ai_model": config.ai_model,
+                "escalation_model": config.escalation_model,
+            })
+
         # Initialize HITL Gate Manager & Agents
         self.gate_manager = HITLGateManager(self.bus, auto_approve=config.mock_mode)
         self.discovery_agent = DiscoveryAgent(
@@ -58,13 +69,15 @@ class EngineRunner:
             secret_scan_patterns=self.policy.security.secret_scan.patterns or None,
         )
         self.architect_agent = ArchitectAgent("ArchitectAgent", self.bus, self.provider)
-        # Complexity-based model choice (sdk/model_selector.py): simple
-        # WorkPackages/reviews use config.light_model (e.g. Haiku), everything
-        # else uses config.ai_model (e.g. Sonnet). Applies to both codegen and
-        # independent review — one shared heuristic, not two separate ones.
+        # 3-tier escalation ladder (sdk/model_selector.py): light_model for
+        # simple first attempts, ai_model for everything else and mid-retries,
+        # escalation_model ONLY on the last retry before giving up. Applies
+        # identically to codegen (DeveloperAgent) and independent review
+        # (TestRunner) — one shared decision, not two separately tuned ones.
         self.developer_agent = DeveloperAgent(
             "DeveloperAgent", self.bus, self.provider,
-            light_model=config.light_model, strong_model=config.ai_model,
+            light_model=config.light_model, default_model=config.ai_model,
+            escalation_model=config.escalation_model,
         )
         self.test_runner = TestRunnerAgent(
             "TestRunnerAgent", self.bus, self.provider,

@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from sdk.base_agent import BaseAgentSDK
 from kernel.event_bus.events import Event, EventType
 from contracts.work_package import WorkPackage
-from sdk.model_selector import select_model
+from sdk.model_selector import select_model_for_attempt
 
 CODE_FENCE_RE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
 
@@ -18,14 +18,18 @@ class DeveloperAgent(BaseAgentSDK):
 
     def __init__(
         self, name: str, bus, provider,
-        light_model: Optional[str] = None, strong_model: Optional[str] = None,
+        light_model: Optional[str] = None, default_model: Optional[str] = None,
+        escalation_model: Optional[str] = None,
     ):
-        # Complexity-based model choice (sdk/model_selector.py): a simple,
-        # single-task WorkPackage uses light_model (e.g. Haiku); anything
-        # bigger uses strong_model (e.g. Sonnet). Both optional — if either
-        # is unset, the provider's own default model is used for everything.
+        # 3-tier escalation ladder (sdk/model_selector.py): light_model for
+        # simple first attempts, default_model for everything else and mid
+        # retries, escalation_model ONLY on the last retry before giving up
+        # (i.e. once default_model has demonstrably, repeatedly failed on
+        # this exact task). All optional — if unset, the provider's own
+        # default model is used for everything, unchanged.
         self.light_model = light_model
-        self.strong_model = strong_model
+        self.default_model = default_model
+        self.escalation_model = escalation_model
         super().__init__(name, bus, provider)
 
     def register_subscriptions(self) -> None:
@@ -39,7 +43,10 @@ class DeveloperAgent(BaseAgentSDK):
         wp = WorkPackage.model_validate(wp_dict)
 
         self.logger.info(f"DeveloperAgent starting development for {wp.id}")
-        written_files = await self._generate_implementation(project_root, wp)
+        # retry_count=0 here always avoids the escalation branch regardless of
+        # max_retries (escalation requires retry_count > 0), so the exact
+        # max_retries value on the first attempt doesn't affect model choice.
+        written_files = await self._generate_implementation(project_root, wp, retry_count=0, max_retries=3)
 
         await self.emit_event(
             event_type=EventType.DEVELOPMENT_COMPLETED,
@@ -73,8 +80,14 @@ class DeveloperAgent(BaseAgentSDK):
         project_root = Path(payload.get("project_root", "."))
         wp = WorkPackage.model_validate(wp_dict)
 
+        # payload's retry_count = number of PRIOR failed attempts; the attempt
+        # about to run is one past that (0 = first try, so a first retry
+        # after payload retry_count=0 is attempt index 1) — this must
+        # increment, otherwise a WorkPackage that already failed once on
+        # light_model would go right back to light_model for the retry.
         written_files = await self._generate_implementation(
-            project_root, wp, previous_error=payload.get("error", "")
+            project_root, wp, previous_error=payload.get("error", ""),
+            retry_count=retry_count + 1, max_retries=max_retries,
         )
 
         await self.emit_event(
@@ -89,7 +102,8 @@ class DeveloperAgent(BaseAgentSDK):
         )
 
     async def _generate_implementation(
-        self, project_root: Path, wp: WorkPackage, previous_error: str = ""
+        self, project_root: Path, wp: WorkPackage, previous_error: str = "",
+        retry_count: int = 0, max_retries: int = 1,
     ) -> Dict[str, str]:
         src_dir = project_root / "src"
         src_dir.mkdir(parents=True, exist_ok=True)
@@ -97,8 +111,17 @@ class DeveloperAgent(BaseAgentSDK):
 
         prompt = self._build_prompt(wp, previous_error)
         context = {"work_package_id": wp.id}
-        if self.light_model and self.strong_model:
-            context["model"] = select_model(wp, self.light_model, self.strong_model)
+        if self.light_model and self.default_model and self.escalation_model:
+            model = select_model_for_attempt(
+                wp, retry_count, max_retries,
+                self.light_model, self.default_model, self.escalation_model,
+            )
+            context["model"] = model
+            if model == self.escalation_model:
+                self.logger.warning(
+                    f"Escalating {wp.id} to {model} after {retry_count} failed attempt(s) "
+                    f"with cheaper models."
+                )
         response = await self.provider.generate(prompt, context=context)
         module_code = self._extract_code(response)
 

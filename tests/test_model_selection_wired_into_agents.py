@@ -56,30 +56,61 @@ def _complex_wp():
     )
 
 
-@pytest.mark.asyncio
-async def test_developer_agent_uses_light_model_for_simple_workpackage(tmp_path):
-    provider = _CapturingProvider()
-    agent = DeveloperAgent("DeveloperAgent", EventBus(), provider, light_model="haiku", strong_model="sonnet")
+def _make_agent(provider):
+    return DeveloperAgent(
+        "DeveloperAgent", EventBus(), provider,
+        light_model="haiku", default_model="sonnet-4-6", escalation_model="sonnet-5",
+    )
 
-    await agent._generate_implementation(tmp_path, _simple_wp())
+
+@pytest.mark.asyncio
+async def test_developer_agent_uses_light_model_for_simple_first_attempt(tmp_path):
+    provider = _CapturingProvider()
+    agent = _make_agent(provider)
+
+    await agent._generate_implementation(tmp_path, _simple_wp(), retry_count=0, max_retries=3)
 
     assert provider.generate_calls == ["haiku"]
 
 
 @pytest.mark.asyncio
-async def test_developer_agent_uses_strong_model_for_complex_workpackage(tmp_path):
+async def test_developer_agent_uses_default_model_for_complex_first_attempt(tmp_path):
     provider = _CapturingProvider()
-    agent = DeveloperAgent("DeveloperAgent", EventBus(), provider, light_model="haiku", strong_model="sonnet")
+    agent = _make_agent(provider)
 
-    await agent._generate_implementation(tmp_path, _complex_wp())
+    await agent._generate_implementation(tmp_path, _complex_wp(), retry_count=0, max_retries=3)
 
-    assert provider.generate_calls == ["sonnet"]
+    assert provider.generate_calls == ["sonnet-4-6"]
+
+
+@pytest.mark.asyncio
+async def test_developer_agent_uses_default_model_for_mid_retry_even_if_simple(tmp_path):
+    """A simple WorkPackage that already failed once on the light model must
+    NOT go straight back to the light model — that already didn't work."""
+    provider = _CapturingProvider()
+    agent = _make_agent(provider)
+
+    await agent._generate_implementation(tmp_path, _simple_wp(), retry_count=1, max_retries=3)
+
+    assert provider.generate_calls == ["sonnet-4-6"]
+
+
+@pytest.mark.asyncio
+async def test_developer_agent_escalates_only_on_last_retry_after_failures(tmp_path):
+    """Sonnet 5 (escalation_model) is used ONLY once default_model has
+    demonstrably, repeatedly failed — never as an upfront guess."""
+    provider = _CapturingProvider()
+    agent = _make_agent(provider)
+
+    await agent._generate_implementation(tmp_path, _complex_wp(), retry_count=2, max_retries=3)
+
+    assert provider.generate_calls == ["sonnet-5"]
 
 
 @pytest.mark.asyncio
 async def test_developer_agent_omits_model_override_when_not_configured(tmp_path):
     provider = _CapturingProvider()
-    agent = DeveloperAgent("DeveloperAgent", EventBus(), provider)  # no light/strong model set
+    agent = DeveloperAgent("DeveloperAgent", EventBus(), provider)  # no models configured
 
     await agent._generate_implementation(tmp_path, _simple_wp())
 
