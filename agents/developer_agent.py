@@ -1,9 +1,10 @@
 import re
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from sdk.base_agent import BaseAgentSDK
 from kernel.event_bus.events import Event, EventType
 from contracts.work_package import WorkPackage
+from sdk.model_selector import select_model
 
 CODE_FENCE_RE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
 
@@ -14,6 +15,18 @@ class DeveloperAgent(BaseAgentSDK):
     from the spec before this agent ran (see ArchitectAgent._write_acceptance_tests),
     so this agent has no way to make a test match a wrong implementation.
     """
+
+    def __init__(
+        self, name: str, bus, provider,
+        light_model: Optional[str] = None, strong_model: Optional[str] = None,
+    ):
+        # Complexity-based model choice (sdk/model_selector.py): a simple,
+        # single-task WorkPackage uses light_model (e.g. Haiku); anything
+        # bigger uses strong_model (e.g. Sonnet). Both optional — if either
+        # is unset, the provider's own default model is used for everything.
+        self.light_model = light_model
+        self.strong_model = strong_model
+        super().__init__(name, bus, provider)
 
     def register_subscriptions(self) -> None:
         self.bus.subscribe(EventType.SPRINT_PLANNING_APPROVED, self.process_event)
@@ -83,7 +96,10 @@ class DeveloperAgent(BaseAgentSDK):
         (src_dir / "__init__.py").touch(exist_ok=True)
 
         prompt = self._build_prompt(wp, previous_error)
-        response = await self.provider.generate(prompt, context={"work_package_id": wp.id})
+        context = {"work_package_id": wp.id}
+        if self.light_model and self.strong_model:
+            context["model"] = select_model(wp, self.light_model, self.strong_model)
+        response = await self.provider.generate(prompt, context=context)
         module_code = self._extract_code(response)
 
         # Namespaced by WorkPackage id — never a fixed "app.py". A fixed path

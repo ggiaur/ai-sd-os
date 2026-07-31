@@ -58,9 +58,17 @@ class EngineRunner:
             secret_scan_patterns=self.policy.security.secret_scan.patterns or None,
         )
         self.architect_agent = ArchitectAgent("ArchitectAgent", self.bus, self.provider)
-        self.developer_agent = DeveloperAgent("DeveloperAgent", self.bus, self.provider)
+        # Complexity-based model choice (sdk/model_selector.py): simple
+        # WorkPackages/reviews use config.light_model (e.g. Haiku), everything
+        # else uses config.ai_model (e.g. Sonnet). Applies to both codegen and
+        # independent review — one shared heuristic, not two separate ones.
+        self.developer_agent = DeveloperAgent(
+            "DeveloperAgent", self.bus, self.provider,
+            light_model=config.light_model, strong_model=config.ai_model,
+        )
         self.test_runner = TestRunnerAgent(
-            "TestRunnerAgent", self.bus, self.provider, max_retries=self.policy.execution.max_retries
+            "TestRunnerAgent", self.bus, self.provider,
+            max_retries=self.policy.execution.max_retries, review_model=config.light_model,
         )
         self.git_driver = GitDriver("GitDriver", self.bus, self.provider)
         self.retro_collector = RetrospectiveCollector("RetrospectiveCollector", self.bus, self.provider)

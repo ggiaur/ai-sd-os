@@ -58,7 +58,7 @@ class AIProvider(ABC):
         pass
 
     @abstractmethod
-    async def review(self, code: str, criteria: List[str]) -> ReviewResult:
+    async def review(self, code: str, criteria: List[str], context: Optional[dict] = None) -> ReviewResult:
         pass
 
     @abstractmethod
@@ -94,7 +94,7 @@ class MockProviderAdapter(AIProvider):
             return "```python\n# Mock generated code\ndef main():\n    pass\n```"
         return "Mock AI response for prompt."
 
-    async def review(self, code: str, criteria: List[str]) -> ReviewResult:
+    async def review(self, code: str, criteria: List[str], context: Optional[dict] = None) -> ReviewResult:
         return _independent_code_review(code)
 
     async def embed(self, text: str) -> List[float]:
@@ -104,16 +104,20 @@ class MockProviderAdapter(AIProvider):
         return AnalysisResult(summary="Mock analysis", key_findings=["All clear"], metadata={})
 
 class AnthropicAdapter(AIProvider):
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-5"):
         self.api_key = api_key
         self.model = model
 
     async def generate(self, prompt: str, context: Optional[dict] = None) -> str:
+        # A per-call model override (see sdk/model_selector.py) lets callers
+        # route simple tasks to a cheaper/faster model without needing a
+        # separate AnthropicAdapter instance per model.
+        model = (context or {}).get("model") or self.model
         try:
             import anthropic
             client = anthropic.AsyncAnthropic(api_key=self.api_key)
             resp = await client.messages.create(
-                model=self.model,
+                model=model,
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -121,7 +125,7 @@ class AnthropicAdapter(AIProvider):
         except Exception as e:
             return f"[Anthropic Fallback Mock Output due to error: {e}]"
 
-    async def review(self, code: str, criteria: List[str]) -> ReviewResult:
+    async def review(self, code: str, criteria: List[str], context: Optional[dict] = None) -> ReviewResult:
         # Deterministic backstop first: secrets and dangerous execution
         # patterns must never depend solely on an LLM's judgment call.
         deterministic = _independent_code_review(code)
@@ -136,7 +140,7 @@ class AnthropicAdapter(AIProvider):
             "otherwise reply FAILED followed by a one-line reason.\n\n"
             f"Criteria:\n" + "\n".join(f"- {c}" for c in criteria) + f"\n\nCode:\n{code}"
         )
-        res = await self.generate(prompt)
+        res = await self.generate(prompt, context=context)
         return ReviewResult(passed="PASSED" in res.upper(), feedback=res)
 
     async def embed(self, text: str) -> List[float]:
@@ -155,10 +159,12 @@ class ClaudeCodeCLIAdapter(AIProvider):
     commands, and self-correct — the same kind of session driving this
     conversation, just invoked non-interactively and scoped to one prompt.
 
-    Model: whatever `model` is set to (default: the engine's configured
-    `KernelConfig.ai_model`, e.g. "claude-sonnet-4-6") — passed straight
-    through to `claude --model`. Nothing is hardcoded here; the model choice
-    lives in one place (KernelConfig), same as every other provider.
+    Model: whatever `model` is set to by default (the engine's configured
+    `KernelConfig.ai_model`) — passed straight through to `claude --model`.
+    A per-call override is also supported via `context={"model": ...}` (see
+    sdk/model_selector.py), so a simple WorkPackage can run on a cheaper/
+    faster model (e.g. Haiku) while a complex one uses the stronger default
+    (e.g. Sonnet) without needing a second adapter instance.
     """
 
     def __init__(
@@ -173,10 +179,10 @@ class ClaudeCodeCLIAdapter(AIProvider):
         self.permission_mode = permission_mode
         self.timeout_seconds = timeout_seconds
 
-    def _run_cli_sync(self, prompt: str) -> str:
+    def _run_cli_sync(self, prompt: str, model: str) -> str:
         cmd = [
             "claude", "-p", prompt,
-            "--model", self.model,
+            "--model", model,
             "--output-format", "text",
             "--permission-mode", self.permission_mode,
         ]
@@ -203,12 +209,13 @@ class ClaudeCodeCLIAdapter(AIProvider):
         return result.stdout
 
     async def generate(self, prompt: str, context: Optional[dict] = None) -> str:
+        model = (context or {}).get("model") or self.model
         # subprocess.run is blocking; run it off the event loop thread so it
         # doesn't stall the rest of the async pipeline (HITL prompts, other
         # agents' event handling) while a CLI session is working.
-        return await asyncio.to_thread(self._run_cli_sync, prompt)
+        return await asyncio.to_thread(self._run_cli_sync, prompt, model)
 
-    async def review(self, code: str, criteria: List[str]) -> ReviewResult:
+    async def review(self, code: str, criteria: List[str], context: Optional[dict] = None) -> ReviewResult:
         # Same deterministic backstop as AnthropicAdapter: secrets and
         # dangerous execution patterns are never left to an LLM's judgment call.
         deterministic = _independent_code_review(code)
@@ -223,7 +230,7 @@ class ClaudeCodeCLIAdapter(AIProvider):
             "one-line reason.\n\n"
             f"Criteria:\n" + "\n".join(f"- {c}" for c in criteria) + f"\n\nCode:\n{code}"
         )
-        res = await self.generate(prompt)
+        res = await self.generate(prompt, context=context)
         return ReviewResult(passed="PASSED" in res.upper(), feedback=res)
 
     async def embed(self, text: str) -> List[float]:
@@ -245,7 +252,7 @@ class OpenAIAdapter(AIProvider):
     async def generate(self, prompt: str, context: Optional[dict] = None) -> str:
         return f"[OpenAI output mock for model {self.model}]"
 
-    async def review(self, code: str, criteria: List[str]) -> ReviewResult:
+    async def review(self, code: str, criteria: List[str], context: Optional[dict] = None) -> ReviewResult:
         return ReviewResult(passed=True, feedback="OpenAI review passed.")
 
     async def embed(self, text: str) -> List[float]:

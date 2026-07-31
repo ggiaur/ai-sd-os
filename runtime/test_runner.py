@@ -1,13 +1,18 @@
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from sdk.base_agent import BaseAgentSDK
 from kernel.event_bus.events import Event, EventType
 from contracts.work_package import WorkPackage
 from runtime.sandbox import SubprocessSandbox
 
 class TestRunnerAgent(BaseAgentSDK):
-    def __init__(self, name: str, bus, provider, max_retries: int = 3):
+    def __init__(self, name: str, bus, provider, max_retries: int = 3, review_model: Optional[str] = None):
         self.max_retries = max_retries
+        # Independent review is a judgment/classification task, not open-ended
+        # generation — it's a good candidate for the cheaper/faster model even
+        # when the implementation itself used the stronger one. Optional: if
+        # unset, the provider's own default model is used.
+        self.review_model = review_model
         super().__init__(name, bus, provider)
 
     def register_subscriptions(self) -> None:
@@ -88,6 +93,7 @@ class TestRunnerAgent(BaseAgentSDK):
             # already fails this case with a clearer message; don't pile on.
             return True, ""
 
+        context = {"model": self.review_model} if self.review_model else None
         result = await self.provider.review(
             combined_code,
             criteria=[
@@ -95,6 +101,7 @@ class TestRunnerAgent(BaseAgentSDK):
                 "The code does not use eval(), exec(), os.system(), or shell=True subprocess calls",
                 f"The code plausibly implements the WorkPackage goal: {wp.goal}",
             ],
+            context=context,
         )
         return result.passed, result.feedback
 

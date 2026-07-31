@@ -9,7 +9,12 @@ class KernelConfig:
     storage_dir_name: str = ".ai-sd-os"
     auto_checkpoint: bool = True
     mock_mode: bool = False
-    ai_model: str = "claude-sonnet-4-6"
+    # Strong/default model — used for anything that doesn't qualify as
+    # "simple" per sdk/model_selector.py (multiple tasks, longer descriptions).
+    ai_model: str = "claude-sonnet-5"
+    # Cheaper/faster model — used for simple WorkPackages and independent
+    # review, both by DeveloperAgent and TestRunner (see sdk/model_selector.py).
+    light_model: str = "claude-haiku-4-5-20251001"
     api_key: Optional[str] = None
     default_timeout_minutes: int = 30
     require_human_gates: bool = True
@@ -30,7 +35,8 @@ class KernelConfig:
         return cls(
             max_retries=int(os.getenv("MAX_RETRIES", "3")),
             mock_mode=mock or (os.getenv("MOCK_MODE", "false").lower() == "true"),
-            ai_model=os.getenv("AI_MODEL", "claude-sonnet-4-6"),
+            ai_model=os.getenv("AI_MODEL", "claude-sonnet-5"),
+            light_model=os.getenv("LIGHT_MODEL", "claude-haiku-4-5-20251001"),
             api_key=os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY"),
             provider=os.getenv("AI_SD_OS_PROVIDER", "anthropic"),
         )
