@@ -1,78 +1,124 @@
-# Két őszinte válasz — az egyik lehet, hogy nem az, amit vársz
+# A terv — a válaszaid alapján
 
-## Előbb: mennyire megbízható a modell-önhangolás ma?
+## Hibrid ReplayWeb.page/pywb kérdésedre — igen, ez a helyes megoldás
 
-**Őszintén: nem tudom, mert nincs még valós adat.** A 3-szintű létra
-(Haiku → Sonnet 4.6 → Sonnet 5) egy ÉSSZERŰ tervezési döntés, amit
-tesztekkel bizonyítottam, hogy A LOGIKÁJA helyesen működik (a helyes
-modellt választja a megfelelő helyzetben) — de ez szintetikus, kitalált
-tesztadatokon fut. Arra, hogy "a leírás-hossz alapú egyszerűség-becslés
-mennyire jó előrejelzője a valódi nehézségnek", **nulla valós adatom van**,
-mert még egyetlen igazi feladat sem futott át rajta. A lessons-learned
-mechanizmus pont azért létezik, hogy EGYSZER, ha lesz elég valós futás,
-legyen mit átnézni — de ma még üres. Ez nem "kész és bevizsgált", hanem
-"jól megtervezett és készen áll arra, hogy tanuljon" — ez fontos
-különbség, és nem akarok többet állítani, mint amit tudok.
+Utánanézve: nincs hivatalos "failure event" API a ReplayWeb.page-ben, de
+két gyakorlati, mérhető jel van a váltásra:
+1. **Fájlméret-küszöb** (a dokumentált problémás eset 963MB volt — egy
+   biztonságos küszöb pl. 200-300MB alatt).
+2. **Betöltési timeout** — ha a `<replay-web-page>` komponens N másodpercen
+   belül nem jelez kész állapotot, feltételezzük, hogy elakadt.
 
-## A nagyobb kérdésed: van-e egyáltalán értelme a pipeline-nak?
+**Ez pontosan ugyanaz a minta**, amit ma reggel az AI modell-választásnál
+építettünk (Haiku→Sonnet 4.6→Sonnet 5 escalation, csak akkor drágább
+eszközre váltva, ha az olcsóbb ténylegesen elbukik) — itt: ReplayWeb.page
+az alapértelmezett (gyors, szerver nélküli), és CSAK akkor esik vissza
+pywb-re (szerver-oldali, megbízhatóbb nagy fájloknál), ha ténylegesen
+elakad. Konzisztens tervezési elv az egész projektben.
 
-**Őszinte válasz: a mostani, egyszemélyes, veled-egyeztetős munkamódra —
-valószínűleg NEM éri meg annyira, mint amennyit gondoltál.**
+## A válaszaidból kirajzolódó architektúra
 
-Nézzük meg pontosan, mit ad hozzá a pipeline (B mód) ahhoz képest, amit
-most csinálunk (A mód, direkt veled dolgozom):
+**Bővítés-first, de swappable**: a meglévő legacy archívumot bővítjük, de
+úgy építjük a komponenseket (ReplayWeb.page, admin UI), hogy alkalmasak
+legyenek arra is, hogy idővel ez legyen a fő rendszer.
 
-### Amiben a pipeline TÉNYLEG jobb, mint a direkt beszélgetés
+**A kulcs új elem, amit kérsz**: egy **admin jóváhagyási felület**, ahol
+egy ember dönt minden automatikusan felfedezett jelöltről ÉS minden
+küszöb alatti minőségű archívumról.
 
-1. **Felügyelet nélküli, autonóm munka.** Ha azt akarod, hogy "fusson
-   éjszaka, amíg alszol, reggelre legyen kész X" — erre a direkt Claude
-   Code beszélgetés nem alkalmas (nekem is "jelen kell lennem" a
-   beszélgetésben), a pipeline viszont igen, mert a HITL-kapuk mentén
-   önállóan halad, és csak a kapuknál áll meg.
-2. **Sok projekt egyidejű, egységes kezelése.** Ha 5-10 projekted lenne, és
-   mindegyiken ugyanazt a szigorú folyamatot (spec-first, kettős
-   verifikáció, audit-napló) akarnád kikényszeríteni anélkül, hogy minden
-   egyes alkalommal külön beszélgetést kezdenél — a pipeline ezt
-   strukturálisan kikényszeríti, a beszélgetés-alapú munka nem.
-3. **Formális audit/megfelelőségi nyomvonal.** A titkosított ledger,
-   traceability matrix, Definition of Done — ez akkor számít, ha egyszer
-   valakinek (auditornak, csapatnak) BIZONYÍTANOD kell, mi történt és miért,
-   nem csak emlékezned kell rá egy chat-előzményből.
+## A pontos folyamat (a válaszaid alapján összeállítva)
 
-### Amiben a direkt beszélgetés (amit MOST csinálunk) egyszerűen JOBB
+```
+1. discovery.py → jelölt oldalak (helyi-kötődés szűrővel)
+        │
+        ▼
+2. ADMIN FELÜLET: "Jelölt oldalak" lista
+   → ember jóváhagyja VAGY elutasítja
+        │ (jóváhagyva)
+        ▼
+3. crawler.py → valódi Browsertrix crawl → WACZ
+        │
+        ▼
+4. quality_index.py → pontszám (archivált vs élő)
+        │
+        ├─ pontszám ≥ QUALITY_THRESHOLD (env var, alapból 96%)
+        │  → automatikus elfogadás, publikálás
+        │
+        ├─ pontszám < QUALITY_THRESHOLD, ELSŐ próbálkozás
+        │  → automatikus ÚJRA-crawl (1x)
+        │
+        └─ pontszám < QUALITY_THRESHOLD, MÁSODIK próbálkozás után is
+           → ADMIN FELÜLET: "Minőségi eltérések" lista
+             → ember dönt: elfogadja / elutasítja / újrapróbálja
+        │
+        ▼
+5. Elfogadás után: pywb collection-be töltés (wb-manager) + ReplayWeb.page
+   (fallback: pywb) a nyilvános oldalon
+        │
+        ▼
+6. MINDEN emberi döntés (jóváhagyás/elutasítás, elfogadás/elutasítás
+   küszöb alatt) → naplózva, később áttekinthető ("tanulási napló") —
+   UGYANAZ a minta, mint a mai `lessons_learned.yaml` a motorban: soha
+   nem automatikusan hangolja magát a szűrő/küszöb, csak bizonyítékot
+   gyűjt, amit egy ember (vagy én, ha kéred) használ fel a finomításhoz.
+```
 
-1. **Gyorsabb.** Nincs esemény-busz, állapotgép, YAML-szerződés-generálás —
-   egyenesen nekiállok a feladatnak.
-2. **Rugalmasabb és okosabb.** Széles kontextust látok, tudok ítélkezni,
-   alkalmazkodni menet közben — a pipeline `DeveloperAgent`-je ma egyetlen,
-   szűk promptot kap egyetlen WorkPackage-hez, nincs igazi oda-vissza
-   iterációja (kivéve, ha a `ClaudeCodeCLIAdapter`-t használod, ami
-   valójában... egy ilyen munkamenetet indítana el, mint ez itt).
-3. **Valószínűleg jobb minőségű**, mert TE közvetlenül átnézed minden
-   lépésemet — ez pont az, amit ma egész végig csináltunk, és pont ez adta
-   a magas minőséget (a sok valódi hibát, amit együtt találtunk meg).
+## Konkrét technikai terv
 
-### A lényeg, amit ki kell mondanom
+### Hova épüljön be? — újrahasznosítjuk a meglévő vázat, nem építünk párhuzamosat
 
-A pipeline igazi értéke NEM az, hogy "jobb munkát végez, mint amikor
-beszélgetünk" — hanem hogy **automatizálja és skálázza** azt, amit most
-kézzel, felügyelettel csinálunk. Ha a te valós használati eseted az, hogy
-**leülsz velem, és együtt dolgozunk** — akkor őszintén, a pipeline overhead-je
-(állapotgép, YAML-szerződések, esemény-busz) ma nem ad annyi értéket, mint
-amennyi munkát igényelt megépíteni.
+A `fewa-v3-backend` (FastAPI + Postgres) már tartalmaz jogosultság-kezelést
+("archivist" szerepkör), jobs API vázat (`/api/admin/ingest`,
+`/api/admin/jobs`) — **ezt bővítjük**, nem építünk mellé egy harmadik
+rendszert. A `arq_worker.py` szimulált függvényei helyére a ma megépített,
+valódi `fewa-automation` modulok (crawler.py, quality_index.py,
+discovery.py) kerülnek.
 
-**A javaslatom:** ha nincs konkrét igényed a "felügyelet nélküli, autonóm
-futtatásra" vagy a "sok projekt egységes kezelésére", akkor NE erőltessük
-tovább a pipeline éles kipróbálását — inkább folytassuk úgy, ahogy ma
-csináltuk: te elmondod, mit akarsz egy adott projekten, és én direktben
-megcsinálom, ugyanazzal a minőségi igényességgel (két független
-ellenőrzés-gondolkodással, tesztekkel, óvatossággal), amit ma a motorba
-építettünk. A motor kódja addig is megmarad — ha egyszer tényleg
-felmerül az autonóm/skálázási igény, készen áll.
+### Új adatbázis-táblák (Postgres, a meglévő séma mellé)
+- `discovery_candidates`: talált jelölt oldalak (URL, cím, snippet,
+  egyező helynevek, státusz: PENDING/APPROVED/REJECTED, döntő admin, időpont)
+- `quality_reviews`: küszöb alatti archívumok (WorkPackage/job id,
+  pontszám, ok, státusz: PENDING/ACCEPTED/REJECTED/RETRY, döntő admin)
+- `curation_decisions` (a "tanulási napló"): minden emberi döntés
+  archívuma, később elemezhető
 
-**Ha viszont van olyan konkrét helyzeted, amikor tényleg felügyelet nélkül
-kellene futnia** (pl. sok kis, ismétlődő feladat, vagy amikor nem vagy
-elérhető) — szólj, és akkor van értelme folytatni az éles pipeline-tesztet.
+### Új backend végpontok
+- `GET /api/admin/candidates` — jelölt lista
+- `POST /api/admin/candidates/{id}/approve` / `/reject`
+- `GET /api/admin/quality-reviews` — küszöb alatti eltérések listája
+- `POST /api/admin/quality-reviews/{id}/decide`
+
+### Konfiguráció
+- `QUALITY_THRESHOLD` env var (alapérték: 96)
+- `MAX_QUALITY_RETRIES` env var (alapérték: 1)
+
+### Admin UI (fewa-v3-frontend, a már tervezett `/admin/dashboard` alá)
+- **"Jelölt oldalak"** oldal — lista, minden jelölthöz a talált helynevek,
+  jóváhagyás/elutasítás gombokkal
+- **"Minőségi eltérések"** oldal — küszöb alatti archívumok, pontszám,
+  konkrét eltérés-okok (a `quality_index.py` már ma is visszaadja ezt),
+  és egy **oldal-melletti összehasonlítás** (archivált szöveg vs élő
+  szöveg kiemelt különbségekkel) — ezt gondoltam ki, mert "találd ki"
+  kérted: enélkül a döntéshozó ember vakon dönt egy puszta százalék alapján.
+
+### Nyilvános visszajátszás
+- `<replay-web-page>` alapértelmezett, fájlméret- és timeout-alapú
+  automatikus pywb-fallback-kel (iframe a helyi/production pywb-re)
+
+## Fázisterv (ezzel indulnék neki)
+
+1. **Adatbázis-séma bővítés** (2 új tábla) + a valós `fewa-automation`
+   modulok bekötése az `arq_worker.py`-ba a szimuláció helyett
+2. **Admin API végpontok** (jelölt jóváhagyás, minőségi döntés)
+3. **Admin UI** (2 új oldal a `/admin` alatt)
+4. **Nyilvános visszajátszó oldal** (ReplayWeb.page + pywb fallback)
+5. **Tanulási napló** (a döntések naplózása — a tényleges "tanulás"/
+   kritérium-finomítás explicit KÉSŐBBI fejlesztés, ahogy te is jelezted)
+
+Minden fázishoz valódi tesztek (ahogy egész nap most is), és a meglévő
+legacy rendszert egyetlen ponton sem érintjük.
+
+**Mehetek?** Ha igen, az 1. fázissal kezdek.
 
 ---
-_Generálva: 2026-07-31 08:46:26 +0200_
+_Generálva: 2026-07-31 10:23:36 +0200_

@@ -34,7 +34,10 @@ automatically as context. Adjust freely — this is a starting point, not a law.
 ## After implementing, before declaring done
 
 5. **Actually run the tests.** Don't claim something passes without running
-   it in this turn.
+   it in this turn. If a real measurement attempt turns out unreliable or
+   inconclusive, SAY SO explicitly — never report a guessed/plausible
+   number as if it were the real result. An honest "I couldn't measure
+   this reliably, here's why" beats a fabricated figure every time.
 6. **Do a genuinely independent second check** — not just "does it pass the
    test I just wrote," but a separate pass for a different class of problem
    (security: hardcoded secrets, dangerous patterns like eval/exec/shell=True;

@@ -15,3 +15,7 @@ own pipeline enforces on generated projects — dogfood it on itself):
   current docs before changing.
 - `CHANGELOG.md` and commit messages describe what was verified, not just
   what changed.
+- **Never report a guessed/estimated number as if it were a real
+  measurement.** If a test/measurement attempt was unreliable or
+  inconclusive, say so explicitly and report what actually happened —
+  never fill the gap with a plausible-sounding fabricated result.
