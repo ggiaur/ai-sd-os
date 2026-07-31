@@ -23,8 +23,9 @@ class CheckpointManager:
             json.dump(data, f, indent=2, ensure_ascii=False)
         return target
 
-    def get_latest_checkpoint(() -> Optional[Path]:
-        pass
+    def get_latest_checkpoint(self) -> Optional[Path]:
+        checkpoints = self.list_checkpoints()
+        return checkpoints[0] if checkpoints else None
 
     def list_checkpoints(self) -> list[Path]:
         return sorted(self.checkpoints_dir.glob("checkpoint_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)

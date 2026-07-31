@@ -1,8 +1,11 @@
 entries:
 - pattern: Sprint SPRINT-001 execution pattern
-  occurrences: 178
+  occurrences: 231
   projects:
   - sample_app / SPRINT-001
   - ' / SPRINT-001'
+  - webarchivum / SPRINT-001
+  - demo-project / SPRINT-001
+  - existing-demo / SPRINT-001
   suggested_action: Maintain automated unit test checks and coverage mapping verification.
   status: PENDING_HUMAN_REVIEW

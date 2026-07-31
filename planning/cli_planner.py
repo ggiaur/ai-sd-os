@@ -15,23 +15,63 @@ class CLIPlanner:
             print("A felmérés alapján ezt találtam:")
             for inf in snapshot.inferred_requirements:
                 print(f"  ✓ {inf.title} ({inf.description})")
+            if snapshot.security.risk_flags:
+                print(f"  ⚠ Biztonsági kockázatok: {len(snapshot.security.risk_flags)} gyanús elem")
+
+            if auto_approve:
+                q1_ans = "Kész, alapfunkciók rendben"
+                q2_ans = "Autentikáció és biztonsági javítások"
+                q3_ans = "Régi nem használt modulok kivezetése"
+                q4_ans = "Igen, a secreteket környezeti változókba helyezzük"
+                q5_ans = "Auth működik, secretek env-be, tesztek lefutnak"
+            else:
+                print("\nKérlek, válaszolj az alábbi felmérési kérdésekre:\n")
+                try:
+                    q1_ans = input("[1/5] Jól látom a felmért alapfunkciókat? (Igen / Megjegyzés)\n> ").strip()
+                    q2_ans = input("[2/5] Mi a következő fő fejlesztési cél/funkció?\n> ").strip()
+                    q3_ans = input("[3/5] Mi a technikai adóssága a programnak, és mi az a modul amit ki kell vezetni?\n> ").strip()
+                    q4_ans = input(f"[4/5] A detektált biztonsági jelzéseket ({snapshot.security.secret_scan_status}) kezeljük most? [Y/n]\n> ").strip()
+                    q5_ans = input("[5/5] Mi a Definition of Done (DoD) elvárásod?\n> ").strip()
+                except EOFError:
+                    q1_ans = "Rendben"
+                    q2_ans = "Következő funkciók megvalósítása"
+                    q3_ans = "Nincs"
+                    q4_ans = "Y"
+                    q5_ans = "Tesztek zöldek"
 
             reqs = [
                 RequirementItem(
                     id="FR-001",
-                    title="Alapfunkciók stabilizálása",
-                    description="Meglévő kód felmérése és alaptesztek biztosítása",
+                    title="Meglévő alapfunkciók",
+                    description=q1_ans or "Kódbázis alapfunkciók igazolva",
                     priority=PriorityEnum.HIGH,
                     status=RequirementStatus.SATISFIED
                 ),
                 RequirementItem(
                     id="FR-002",
-                    title="Autentikáció és biztonsági javítások",
-                    description="Kódbázis biztonsági kockázatok és secret leakek kezeése",
+                    title=q2_ans or "Következő fő fejlesztési modul",
+                    description=f"Cél: {q2_ans}. DoD elvárás: {q5_ans}",
                     priority=PriorityEnum.HIGH,
                     status=RequirementStatus.PENDING
                 )
             ]
+            if q3_ans and q3_ans.lower() != "nincs":
+                reqs.append(RequirementItem(
+                    id="FR-003",
+                    title="Technikai adósság és kivezetés",
+                    description=q3_ans,
+                    priority=PriorityEnum.MEDIUM,
+                    status=RequirementStatus.PENDING
+                ))
+            if q4_ans.lower() in ["y", "igen", ""]:
+                reqs.append(RequirementItem(
+                    id="FR-004",
+                    title="Biztonsági secretek környezeti változókba rendezése",
+                    description="Secret scanner által jelzett hardcode-olt elemek env-be szervezése",
+                    priority=PriorityEnum.HIGH,
+                    status=RequirementStatus.PENDING
+                ))
+
             tech_stack = snapshot.stack.languages + snapshot.stack.frameworks
         else:
             if auto_approve:
@@ -77,5 +117,8 @@ class CLIPlanner:
         ai_sd_dir.mkdir(parents=True, exist_ok=True)
         save_yaml_contract(spec, ai_sd_dir / "SPEC_FORMAL.yaml")
 
-        print(f"\n✓ .ai-sd-os/ SPEC_FORMAL.yaml sikeresen létrehozva!\n")
+        print(f"\n✓ .ai-sd-os/ SPEC_FORMAL.yaml frissítve az alábbi követelményekkel:")
+        for r in spec.requirements:
+            print(f"  • {r.id} [{r.status.value}] {r.title}")
+        print()
         return spec

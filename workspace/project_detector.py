@@ -1,16 +1,15 @@
 import json
 from pathlib import Path
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from kernel.state.states import ProjectState
 
 class ProjectHandle(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     project_root: Path
     state: ProjectState
     state_file: Path
-
-    class Config:
-        arbitrary_types_allowed = True
 
     @classmethod
     def from_state(cls, state_file: Path) -> "ProjectHandle":

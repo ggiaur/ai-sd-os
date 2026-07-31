@@ -19,6 +19,12 @@ async def test_full_golden_path(tmp_path):
     assert state_handle is not None
     assert (project_dir / ".ai-sd-os" / "SPEC_FORMAL.yaml").exists()
     assert (project_dir / ".ai-sd-os" / "WORK_PACKAGE.yaml").exists()
-    assert (project_dir / "src" / "app.py").exists()
-    assert (project_dir / "tests" / "test_app.py").exists()
+
+    # Generated files are namespaced by WorkPackage id (WP-001 -> ...) rather
+    # than a fixed "app.py" — this is what keeps the engine from ever
+    # overwriting a human's pre-existing files when adopting a real project.
+    generated_modules = list((project_dir / "src").glob("ai_sd_os_generated_*.py"))
+    generated_tests = list((project_dir / "tests").glob("test_ai_sd_os_generated_*.py"))
+    assert len(generated_modules) == 1
+    assert len(generated_tests) == 1
     assert (project_dir / "CHANGELOG.md").exists()
