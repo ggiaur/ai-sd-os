@@ -1,97 +1,78 @@
-# 4 kérdésed — sorban
+# Két őszinte válasz — az egyik lehet, hogy nem az, amit vársz
 
-## 1. "Ez legyen a te mérlegelésed és a tesztek finomítsák" — megcsináltam
+## Előbb: mennyire megbízható a modell-önhangolás ma?
 
-A `DeveloperAgent` mostantól, ha egy WorkPackage-et a heurisztika
-"egyszerűnek" ítélt (Haiku-ra küldte), de az ELSŐ próbálkozás elbukott a
-verifikáción, ezt **rögzíti** a motor már meglévő "lessons learned"
-rendszerében (`lessons/lessons_learned.yaml`, `status:
-PENDING_HUMAN_REVIEW`) — pont úgy, ahogy a motor Alkotmánya előírja: a
-kernel-viselkedést (itt: a `sdk/model_selector.py` küszöbértékeit) **soha
-nem hangolja automatikusan**, csak bizonyítékot gyűjt, amit egy ember (vagy
-én, ha rákérdezel) tud felhasználni a döntéshez. **93/93 teszt zöld**,
-2 új teszt igazolja, hogy ez a napló-bejegyzés ténylegesen megtörténik,
-commitolva/pusholva (`c7d784a`).
+**Őszintén: nem tudom, mert nincs még valós adat.** A 3-szintű létra
+(Haiku → Sonnet 4.6 → Sonnet 5) egy ÉSSZERŰ tervezési döntés, amit
+tesztekkel bizonyítottam, hogy A LOGIKÁJA helyesen működik (a helyes
+modellt választja a megfelelő helyzetben) — de ez szintetikus, kitalált
+tesztadatokon fut. Arra, hogy "a leírás-hossz alapú egyszerűség-becslés
+mennyire jó előrejelzője a valódi nehézségnek", **nulla valós adatom van**,
+mert még egyetlen igazi feladat sem futott át rajta. A lessons-learned
+mechanizmus pont azért létezik, hogy EGYSZER, ha lesz elég valós futás,
+legyen mit átnézni — de ma még üres. Ez nem "kész és bevizsgált", hanem
+"jól megtervezett és készen áll arra, hogy tanuljon" — ez fontos
+különbség, és nem akarok többet állítani, mint amit tudok.
 
-Vagyis: ha rendszeresen rossz döntéseket látsz, nem kell "szólnod" — a motor
-saját maga gyűjti a bizonyítékot, és ha átnézed a `lessons_learned.yaml`-t
-(vagy megkérsz, hogy nézzem át), onnantól tudatosan finomíthatjuk a
-küszöböt, nem találgatásból.
+## A nagyobb kérdésed: van-e egyáltalán értelme a pipeline-nak?
 
-## 2. Mikor indulhatunk másik projekten? — Fontos tisztázás előbb
+**Őszinte válasz: a mostani, egyszemélyes, veled-egyeztetős munkamódra —
+valószínűleg NEM éri meg annyira, mint amennyit gondoltál.**
 
-**Két teljesen különböző üzemmódról van szó, és eddig csak az egyiket
-csináltuk:**
+Nézzük meg pontosan, mit ad hozzá a pipeline (B mód) ahhoz képest, amit
+most csinálunk (A mód, direkt veled dolgozom):
 
-- **A) Amit EDDIG csináltunk (ezen a beszélgetésen keresztül):** ÉN,
-  Claude Code, közvetlenül dolgoztam a motor kódján — olvastam, írtam,
-  teszteltem, commitoltam, veled egyeztetve minden lépésnél. Ez NEM az
-  ai-sd-os motor pipeline-ja — ez simán "veled dolgozom, mint fejlesztő".
-- **B) Az ai-sd-os motor ÖNÁLLÓ pipeline-ja** (`main.py`): ez egy
-  automatizált rendszer, ami emberi jóváhagyási kapukkal (HITL gates) fut,
-  saját ágensekkel generál kódot, saját maga futtatja a teszteket és
-  commitol/pushol — **ezt még sosem próbáltuk ki éles (nem mock) módban.**
+### Amiben a pipeline TÉNYLEG jobb, mint a direkt beszélgetés
 
-A B) mód értéke ott van, amikor **felügyelet nélkül, autonóm módon** akarod,
-hogy dolgozzon (pl. "fusson éjszaka, reggelre legyen kész X"). Ha viszont
-most, veled beszélgetve akarsz egy funkciót megcsináltatni egy projekten —
-azt egyszerűen ÉN direktben megcsinálom, ahogy eddig is, gyorsabb és
-átláthatóbb, mint a pipeline-on keresztül.
+1. **Felügyelet nélküli, autonóm munka.** Ha azt akarod, hogy "fusson
+   éjszaka, amíg alszol, reggelre legyen kész X" — erre a direkt Claude
+   Code beszélgetés nem alkalmas (nekem is "jelen kell lennem" a
+   beszélgetésben), a pipeline viszont igen, mert a HITL-kapuk mentén
+   önállóan halad, és csak a kapuknál áll meg.
+2. **Sok projekt egyidejű, egységes kezelése.** Ha 5-10 projekted lenne, és
+   mindegyiken ugyanazt a szigorú folyamatot (spec-first, kettős
+   verifikáció, audit-napló) akarnád kikényszeríteni anélkül, hogy minden
+   egyes alkalommal külön beszélgetést kezdenél — a pipeline ezt
+   strukturálisan kikényszeríti, a beszélgetés-alapú munka nem.
+3. **Formális audit/megfelelőségi nyomvonal.** A titkosított ledger,
+   traceability matrix, Definition of Done — ez akkor számít, ha egyszer
+   valakinek (auditornak, csapatnak) BIZONYÍTANOD kell, mi történt és miért,
+   nem csak emlékezned kell rá egy chat-előzményből.
 
-**Javaslatom az induláshoz, ha a B) módot (önálló pipeline) akarod
-kipróbálni:**
-1. NE a webarchívumon kezdjük — az egy komplex, valós, értékes projekt.
-   Válasszunk egy kis, alacsony téttel járó, jól körülhatárolt feladatot
-   (akár egy vadonatúj, üres projekt, akár a webarchívum egy triviális,
-   elszigetelt részfeladata).
-2. Először **csak a Discovery/SPEC szakaszig** fusson (`auto_approve=False`,
-   valós API-kulccsal, de a Sprint Planning kapunál MEGÁLLUNK, átnézzük,
-   mit tervez, mielőtt bármit írna).
-3. Csak ez után engedjük tovább a fejlesztési fázisba.
+### Amiben a direkt beszélgetés (amit MOST csinálunk) egyszerűen JOBB
 
-## 3. A könyvtár-kérdés — nem számít, amit gondoltál
+1. **Gyorsabb.** Nincs esemény-busz, állapotgép, YAML-szerződés-generálás —
+   egyenesen nekiállok a feladatnak.
+2. **Rugalmasabb és okosabb.** Széles kontextust látok, tudok ítélkezni,
+   alkalmazkodni menet közben — a pipeline `DeveloperAgent`-je ma egyetlen,
+   szűk promptot kap egyetlen WorkPackage-hez, nincs igazi oda-vissza
+   iterációja (kivéve, ha a `ClaudeCodeCLIAdapter`-t használod, ami
+   valójában... egy ilyen munkamenetet indítana el, mint ez itt).
+3. **Valószínűleg jobb minőségű**, mert TE közvetlenül átnézed minden
+   lépésemet — ez pont az, amit ma egész végig csináltunk, és pont ez adta
+   a magas minőséget (a sok valódi hibát, amit együtt találtunk meg).
 
-**Nem kell átjelentkezned semmilyen mappába, és nekem sem kell onnan
-indulnom.** Ennek az oka egyszerű: a motor `main.py`-ja azt nézi, hogy MELYIK
-KÖNYVTÁRBAN FUT ÉPPEN A PARANCS (a `cd project && python3 main.py`
-mintában) — ez teljesen független attól, hogy a Claude Code munkamenetem
-honnan indult. Bizonyíték: ebben a beszélgetésben már dolgoztam a
-webarchívumon, a demo-project-en, az existing-demo-n — mindegyik más
-könyvtár, anélkül hogy újra kellett volna indítanod engem onnan. Egyszerűen
-`cd`-elek oda, ahova kell, parancsonként.
+### A lényeg, amit ki kell mondanom
 
-Az egyetlen dolog, aminek ELVILEG jelentősége LEHETNE: ha a Claude Code
-saját fájlhozzáférési engedélyei szigorúan a indítási könyvtárra lennének
-korlátozva. De ezt már cáfolta a gyakorlat — hozzáfértem a
-`/srv/projects/webarchivum`-hoz simán, pedig a munkamenet nem onnan indult.
-**Tehát: nem kell átjelentkezned, nyugodtan maradhatsz ott, ahol most vagy.**
+A pipeline igazi értéke NEM az, hogy "jobb munkát végez, mint amikor
+beszélgetünk" — hanem hogy **automatizálja és skálázza** azt, amit most
+kézzel, felügyelettel csinálunk. Ha a te valós használati eseted az, hogy
+**leülsz velem, és együtt dolgozunk** — akkor őszintén, a pipeline overhead-je
+(állapotgép, YAML-szerződések, esemény-busz) ma nem ad annyi értéket, mint
+amennyi munkát igényelt megépíteni.
 
-## 4. Gemini (vagy más provider) integrálása kvóta-kiesés esetére
+**A javaslatom:** ha nincs konkrét igényed a "felügyelet nélküli, autonóm
+futtatásra" vagy a "sok projekt egységes kezelésére", akkor NE erőltessük
+tovább a pipeline éles kipróbálását — inkább folytassuk úgy, ahogy ma
+csináltuk: te elmondod, mit akarsz egy adott projekten, és én direktben
+megcsinálom, ugyanazzal a minőségi igényességgel (két független
+ellenőrzés-gondolkodással, tesztekkel, óvatossággal), amit ma a motorba
+építettünk. A motor kódja addig is megmarad — ha egyszer tényleg
+felmerül az autonóm/skálázási igény, készen áll.
 
-**Igen, technikailag egyszerű** — az `AIProvider` interfész pont erre való
-(lásd a korábbi részletes magyarázatot arról, "mi az a provider"). Egy
-`GeminiAdapter` ugyanúgy megírható, mint az `OpenAIAdapter` (ami ma még csak
-váz, de a minta megvan).
-
-**Amit érdemes hozzá építeni, ha csináljuk:** nem elég egy önálló
-`GeminiAdapter` — kell egy **`FallbackProviderAdapter`** wrapper is, ami:
-1. Megpróbálja a fő providert (pl. Anthropic).
-2. Ha kvóta/rate-limit hibát kap (nem akármilyen hibát — konkrétan
-   erőforrás-kimerülést), automatikusan átvált a másodlagos providerre
-   (pl. Gemini).
-3. Ezt logolja (és a fenti lessons-learned mechanizmussal jelzi, hogy
-   fallback történt — átláthatóság, nem csendes csere).
-
-Ez egy VALÓDI, önálló fejlesztési kör lenne (új függőség — Gemini SDK —,
-API-kulcs-kezelés, hibatípus-felismerés kvóta vs. egyéb hiba
-megkülönböztetésére). Nincs itt Gemini API-kulcsom, hogy éles tesztet
-futtassak rajta, de mock-olt teszteléssel (ahogy a ClaudeCodeCLIAdapter-nél
-is tettem) meg tudom írni és bizonyítani, hogy a fallback-logika helyesen
-működik.
-
-**Kérdés hozzád:** ez most jöjjön, vagy előbb a 2. pontban javasolt "kis,
-alacsony téttel járó éles próba" a pipeline-nal? Mindkettő értelmes
-következő lépés, de mindkettőt egyszerre nem érdemes csinálni.
+**Ha viszont van olyan konkrét helyzeted, amikor tényleg felügyelet nélkül
+kellene futnia** (pl. sok kis, ismétlődő feladat, vagy amikor nem vagy
+elérhető) — szólj, és akkor van értelme folytatni az éles pipeline-tesztet.
 
 ---
-_Generálva: 2026-07-31 08:31:36 +0200_
+_Generálva: 2026-07-31 08:46:26 +0200_
