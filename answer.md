@@ -1,55 +1,79 @@
-# Modell-választás: Haiku vs Sonnet, kódoláshoz ÉS review-hoz is — KÉSZ
+# Igazad volt — Sonnet 4.6 valóban létezik. Javítva, profibb megoldással.
 
-## Amit csináltam
+## Amit rosszul csináltam, és amit utánanéztem
 
-1. **A hibás modellazonosítót kijavítottam.** `"claude-sonnet-4-6"` nem
-   létező modell volt — helyette `KernelConfig.ai_model` alapértéke most
-   `"claude-sonnet-5"`, és bekerült egy új `light_model` mező
-   `"claude-haiku-4-5-20251001"` alapértékkel.
+Korábban **hibásan** "javítottam" az `ai_model` alapértékét
+`"claude-sonnet-5"`-re, mert azt hittem, a `"claude-sonnet-4-6"` egy
+elgépelés vagy nem létező modell. Tévedtem — utánanéztem hivatalos
+forrásokból (Anthropic hivatalos bejelentés, AWS Bedrock model card), és:
 
-2. **Egyetlen közös heurisztika (`sdk/model_selector.py`), ami MINDKÉT
-   helyen fut** — pont amit kértél: "nem csak a tesztre, a kódolásra is":
-   - `DeveloperAgent` (a tényleges kódírás) — ha egy WorkPackage egyszerű
-     (1 rövid feladat), Haiku-t használ; ha összetettebb (több feladat vagy
-     hosszabb leírás), Sonnet-et.
-   - `TestRunnerAgent` független review-lépése — ugyanezt a döntést kapja
-     meg, ráadásul a review alapból a Haiku-t kapja preferáltan (egy
-     kód-ellenőrzés egyszerűbb ítélet-feladat, mint a generálás).
+- **Sonnet 4.6 valóban létezik**, 2026. február 17-én jelent meg, a valós
+  API modell-azonosítója szó szerint `claude-sonnet-4-6`, ára $3/$15
+  (input/output, millió tokenenként).
+- **Sonnet 5** ennél KÉSŐBB, 2026. június 30-án jelent meg — jelenleg
+  bevezető áron $2/$10 (2026.08.31-ig), utána $3/$15-re emelkedik.
+- **Haiku 4.5**: `claude-haiku-4-5-20251001`, $1/$5 — a legolcsóbb.
 
-3. **A modellválasztás nem csak a `KernelConfig.ai_model` mezőhöz van
-   kötve** — mindhárom valódi adapter (Anthropic, ClaudeCodeCLI) most már
-   elfogad egy per-hívásos felülbírálást (`context={"model": ...}"`), így a
-   motor UGYANAZT a provider-objektumot használja, csak feladatonként más
-   modellt kér tőle — nem kell külön adapter-példány minden modellhez.
+Vagyis a sorrend időben: **Haiku 4.5 → Sonnet 4.6 → Sonnet 5**, és jelenleg
+a Sonnet 5 bevezető ára miatt NEM egyértelműen drágább, mint a 4.6 — ez
+augusztus 31. után változik. Ez pontosan mutatja, miért veszélyes
+hardcode-olni: az árstruktúra és az elérhető modellek listája HÓNAPRÓL
+HÓNAPRA változik.
 
-4. **7 új teszt, ami TÉNYLEGESEN bizonyítja, hogy ez működik** — nem csak azt
-   ellenőrzi, hogy a heurisztika-függvény jó választ ad izoláltan, hanem egy
-   "figyelő" (capturing) provider-stub-bal azt is, hogy a `DeveloperAgent`
-   és a `TestRunnerAgent` TÉNYLEG átadja a helyes modellnevet a hívásban.
+**Forrás:**
+- [Introducing Sonnet 4.6 — Anthropic hivatalos bejelentés](https://www.anthropic.com/news/claude-sonnet-4-6)
+- [Claude Sonnet 4.6 — AWS Bedrock model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-4-6.html)
+- [Claude Sonnet 5 pricing — OpenRouter](https://openrouter.ai/anthropic/claude-sonnet-5)
+- [Claude Haiku 4.5 — Anthropic hivatalos oldal](https://www.anthropic.com/claude/haiku)
+- [Model IDs and versioning — Claude Platform Docs](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions)
 
-**79/79 teszt zöld, élesben (mock módban) leellenőrizve, commitolva és
-pusholva** (`bce5db1`).
+## A profi megoldás, amit építettem: ESCALATION, nem találgatás
 
-## Mostantól hogyan állítod be
+A korábbi megközelítésem (leírás-hossz alapján megbecsülni, "ez bonyolult
+lesz, vigyük Sonnet-re") pontosan az volt, amit kritizáltál — egy találgatás,
+amit nem lehet megbízhatóan "felmérni" előre. Az iparágban erre a valódi,
+bevált mintázat: **escalation-on-failure** — csak akkor lépünk drágább
+modellre, ha a olcsóbb TÉNYLEGESEN, bizonyítottan elbukott, nem mert
+"úgy néz ki, hogy bonyolult lesz."
 
-`.env`-ben (vagy környezeti változóként):
-```
-AI_MODEL=claude-sonnet-5        # erős modell, összetett feladatokhoz
-LIGHT_MODEL=claude-haiku-4-5-20251001   # gyors/olcsó modell, egyszerű feladatokhoz + review-hoz
-```
+Az új, 3-szintű létra (`sdk/model_selector.py`):
 
-Nem kell semmit kikapcsolni vagy külön konfigurálni — ha valós (nem mock)
-módban futtatod a motort, ez a döntés automatikusan megtörténik minden
-egyes WorkPackage-nél, a heurisztika alapján.
+1. **1. próbálkozás, egyszerű feladat** (1 rövid task) → **Haiku 4.5**
+2. **1. próbálkozás, összetettebb feladat, VAGY bármelyik köztes retry** →
+   **Sonnet 4.6** (ez a valódi munkaló modell, nem a Haiku és nem a Sonnet 5)
+3. **CSAK az utolsó retry**, mielőtt a pipeline feladná → **Sonnet 5** — és
+   KIZÁRÓLAG akkor, ha a Sonnet 4.6 már bizonyítottan, ismételten elbukott
+   ugyanazon a feladaton.
 
-## Amire figyelmeztetlek: ez egy KIINDULÓ heurisztika, nem tudomány
+Ez pontosan azt csinálja, amit írtál: "sonnet 5 csak bonyolult
+feladatoknál, ahol a 4.6 nem boldogul" — de a "nem boldogul"-t TÉNYLEGES,
+mért kudarc dönti el (a mi saját, kétrétegű verifikációnk: pytest + független
+review — lásd korábbi köröket), nem egy előzetes találgatás.
 
-"1 feladat, rövid leírás = egyszerű" — ez egy ésszerű, de nyers becslés.
-Ha azt látod, hogy rosszul dönt (pl. egy rövid leírású, de valójában
-trükkös feladatot Haiku-ra küld, és az elbukik a review-n), a pipeline a
-meglévő retry-mechanizmuson keresztül úgyis újrapróbálja — de ha
-rendszeresen rossz döntéseket látsz, szólj, és finomítjuk a
-`sdk/model_selector.py`-ban lévő küszöbértékeket.
+## A másik kérésed: mi van, ha egy modell megszűnik?
+
+**`sdk/model_validator.py`** — a motor induláskor (nem minden work
+package-nél, csak egyszer, hogy ne legyen felesleges API-hívás-pazarlás)
+ténylegesen lekérdezi az Anthropic API-tól (`client.models.retrieve(model_id)`)
+mindhárom konfigurált modellt (light/ai/escalation), és ha valamelyik
+elavult/átnevezett/nem létezik, **hangosan figyelmeztet**, ahelyett hogy
+csendben, egy zavaros API-hibával futna el a pipeline közepén. Ez nem
+automatikusan cserél le semmit — az automatikus "találjunk ki egy pótlást"
+kockázatosabb lenne, mint egy világos figyelmeztetés + link a dokumentációra.
+
+**91/91 teszt zöld** (17 új/frissített teszt csak erre a körre — az
+escalation-létra minden ágára, plusz egy hamisított Anthropic-klienssel a
+validátorra, hogy sose hívjunk valódi API-t a teszteléshez). Élesben
+leellenőrizve, commitolva és pusholva (`f0c0554`).
+
+## Amire figyelmeztetlek
+
+Ez a rendszer NEM garantálja, hogy sose kell kézzel beavatkoznod — ha
+Anthropic hónapok múlva kivezeti a Sonnet 4.6-ot, a validátor jelezni fogja
+(hangos warning induláskor), de nem fog magától új modellt választani
+helyette. Ez tudatos döntés: egy automatikusan "kitalált" modellcsere
+kockázatosabb lenne, mint hogy te nézd át és döntsd el kézzel, a
+`.env`-ben (`AI_MODEL`, `LIGHT_MODEL`, `ESCALATION_MODEL`).
 
 ---
-_Generálva: 2026-07-31 08:11:00 +0200_
+_Generálva: 2026-07-31 08:25:41 +0200_
