@@ -25,7 +25,7 @@ def test_spec_formal_validation():
         RequirementItem(id="INVALID-ID", title="T", description="D")
 
 def test_work_package_validation():
-    task = TaskItem(task_id="TASK-001", description="Do task", requirement_ref="FR-001")
+    task = TaskItem(task_id="TASK-001", description="Do task", requirement_ref="FR-001", expected_output="FR-001-DONE")
     wp = WorkPackage(
         id="WP-001",
         sprint_id="SPRINT-001",

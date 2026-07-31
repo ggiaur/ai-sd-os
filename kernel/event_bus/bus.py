@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 from typing import Callable, Awaitable, Dict, List, Optional, TYPE_CHECKING
 from kernel.event_bus.events import Event, EventType
@@ -42,7 +43,7 @@ class EventBus:
         handlers = list(self._subscribers.get(event.event_type, [])) + list(self._global_subscribers)
         for h in handlers:
             try:
-                if asyncio.iscoroutinefunction(h):
+                if inspect.iscoroutinefunction(h):
                     await h(event)
                 else:
                     h(event)

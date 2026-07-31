@@ -15,7 +15,19 @@ class SwarmOrchestrator:
 
     def partition_tasks(self, tasks: List[TaskItem]) -> List[List[TaskItem]]:
         groups: List[List[TaskItem]] = []
+        sequential_group: List[TaskItem] = []
+
         for task in tasks:
             if self.locker.acquire_lock(task.requirement_ref, task.task_id):
                 groups.append([task])
+            else:
+                # Namespace already locked by another task in this batch: it
+                # cannot run in parallel, but it must still be scheduled.
+                # Previously a failed lock silently dropped the task from the
+                # execution plan entirely instead of queuing it.
+                sequential_group.append(task)
+
+        if sequential_group:
+            groups.append(sequential_group)
+
         return groups

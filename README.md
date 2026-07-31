@@ -232,6 +232,16 @@ ai-sd-os/                               ← A motor könyvtára
 └── README.md
 ```
 
+> **A fenti könyvtárszerkezet egy célállapot, nem a jelenlegi repo teljes leltára.**
+> A `kernel/`, `contracts/`, `agents/core/`, `sdk/`, `runtime/` gerince ténylegesen
+> létezik és tesztelt. Az alábbiak viszont még **nincsenek implementálva** — ne
+> hivatkozz rájuk meglévő funkcióként, amíg ez a jegyzet itt van:
+> `capabilities/`, `versions/`, `compliance/`, `genome/`, `kernel/economics/`,
+> `kernel/swarm/merge_agent.py`, `agents/core/drift_detector_agent.py`,
+> `agents/plugins/*`, `CONTRIBUTING.md` szerinti teljes tooling automatizáció.
+> (`CONTRIBUTING.md` maga már létezik, csak a benne leírt folyamatot nem
+> kényszeríti ki még semmilyen automatika a `CONTRIBUTING.md` megírásán túl.)
+
 ## 5. A Rendszer Alkotmánya (`kernel/system/SYSTEM_CONSTITUTION.md`)
 
 ```markdown

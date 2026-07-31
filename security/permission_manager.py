@@ -8,10 +8,16 @@ class PermissionManager:
     def is_path_allowed(self, target_path: Path, project_root: Path) -> bool:
         try:
             rel_path = target_path.resolve().relative_to(project_root.resolve())
-            path_str = str(rel_path)
-            for allowed in self.allowed_paths:
-                if path_str.startswith(allowed.rstrip("/")):
-                    return True
-            return False
         except ValueError:
             return False
+
+        rel_parts = rel_path.parts
+        for allowed in self.allowed_paths:
+            # Compare by path SEGMENTS, not raw string prefix: a naive
+            # str.startswith("src") would incorrectly let "src-evil/x.py"
+            # through as if it were inside "src/" — a real allowed_paths
+            # bypass for a security boundary.
+            allowed_parts = Path(allowed.rstrip("/")).parts
+            if rel_parts[: len(allowed_parts)] == allowed_parts:
+                return True
+        return False

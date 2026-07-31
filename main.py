@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from pathlib import Path
 
 # Add project root to sys.path
@@ -26,6 +27,8 @@ from runtime.test_runner import TestRunnerAgent
 from runtime.git_driver import GitDriver
 from agents.retrospective_collector import RetrospectiveCollector
 from sdk.provider_adapter import MockProviderAdapter, AnthropicAdapter
+from kernel.system.answer_log import write_answer
+from kernel.system.version import __version__
 
 class EngineRunner:
     def __init__(self, cwd: Path, config: KernelConfig):
@@ -60,7 +63,7 @@ class EngineRunner:
 
         if handle:
             print(f"╔══════════════════════════════════════════════════╗")
-            print(f"║  AI-SD-OS V5 — Meglévő projekt: {self.cwd.name:<16} ║")
+            print(f"║  AI-SD-OS V{__version__} — Meglévő projekt: {self.cwd.name:<16} ║")
             print(f"╚══════════════════════════════════════════════════╝\n")
             print(f"Állapot: {handle.state.value}\n")
             print("[1] Új sprint indítása (új követelmények hozzáadása)")
@@ -107,7 +110,7 @@ class EngineRunner:
                 return
         else:
             print(f"╔══════════════════════════════════════════════════╗")
-            print(f"║  AI-SD-OS V5 — Mi a helyzet?                     ║")
+            print(f"║  AI-SD-OS V{__version__} — Mi a helyzet?                     ║")
             print(f"╚══════════════════════════════════════════════════╝\n")
             print(f"Ebben a könyvtárban ({self.cwd.resolve()})")
             print(f"még nincs AI-SD-OS projekt.\n")
@@ -163,18 +166,55 @@ class EngineRunner:
     async def start_sprint_pipeline(self, spec) -> None:
         save_project_state(self.cwd, ProjectState.WORK_PACKAGE)
 
+        # One unique correlation id per pipeline run, so we can inspect exactly
+        # which events this run produced afterwards (bus.history is shared
+        # across the whole process, not scoped to a single publish() call).
+        correlation_id = f"pipeline-{spec.project_name}-{int(time.time()*1000)}"
+
         # Trigger Spec Created Event -> Architect Agent -> WorkPackage -> HITL -> Developer -> Test -> Review -> Retro
         await self.bus.publish(Event(
             event_type=EventType.SPEC_CREATED,
             payload={"spec": spec.model_dump(), "project_root": str(self.cwd.resolve())},
-            correlation_id="pipeline-main"
+            correlation_id=correlation_id
         ))
 
+        chain_events = [e for e in self.bus.history if e.correlation_id == correlation_id]
+        blocked_events = [e for e in chain_events if e.event_type == EventType.PIPELINE_BLOCKED]
+
+        if blocked_events:
+            reason = blocked_events[-1].payload.get("reason", "Unknown reason")
+            save_project_state(self.cwd, ProjectState.BLOCKED)
+            summary = (
+                f"# Sprint Pipeline — BLOCKED\n\n"
+                f"- Spec: {spec.project_name}\n"
+                f"- Ok: {reason}\n\n"
+                f"A pipeline NEM ért véget sikeresen — emberi beavatkozás szükséges.\n"
+                f"A `.ai-sd-os/state.json` most `BLOCKED` állapotban van.\n"
+            )
+            write_answer(self.cwd, summary)
+            print(f"\n⛔ Sprint pipeline BLOCKED: {reason}")
+            print(f"Projekt állapota: BLOCKED — emberi beavatkozás szükséges.\n")
+            return
+
+        was_planned = any(e.event_type == EventType.WORKPACKAGE_CREATED for e in chain_events)
+        if not was_planned:
+            # ArchitectAgent found nothing PENDING to build — nothing actually
+            # happened this run. That is not the same thing as "DONE".
+            save_project_state(self.cwd, ProjectState.SPEC)
+            print(f"\nℹ️  Nincs elvégezhető (PENDING) követelmény a specifikációban. Nincs mit sprintelni.\n")
+            return
+
         save_project_state(self.cwd, ProjectState.DONE)
+        summary = (
+            f"# Sprint Pipeline — DONE\n\n"
+            f"- Spec: {spec.project_name}\n"
+            f"- A sprint sikeresen lefutott, a tesztek és a HITL kapuk jóváhagyással zárultak.\n"
+        )
+        write_answer(self.cwd, summary)
         print(f"\n🎉 Sprint lefutott és elküldve! Projekt állapota: DONE\n")
 
 def main():
-    parser = argparse.ArgumentParser(description="AI-SD-OS V5 Engine")
+    parser = argparse.ArgumentParser(description=f"AI-SD-OS V{__version__} Engine")
     parser.add_argument("command", nargs="?", default=None, help="Command (list, status)")
     parser.add_argument("--mock", action="store_true", help="Run in mock mode without requiring API keys")
 
@@ -202,9 +242,32 @@ def main():
             print(f"\n❌ Nincs AI-SD-OS projekt ebben a könyvtárban ({cwd.resolve()})\n")
         return
 
+    if _is_motor_directory(cwd):
+        print(
+            "\n❌ A motor (ai-sd-os/) és a generált projektek soha nem élhetnek ugyanabban a "
+            "könyvtárban / Git repóban (lásd README, 'Kritikus Tervezési Alapelvek').\n"
+            f"   Jelenlegi könyvtár: {cwd.resolve()}\n"
+            f"   Ez a motor saját könyvtára: {MOTOR_DIR}\n\n"
+            "   Menj a célprojekted saját (testvér-)könyvtárába, és onnan indítsd:\n"
+            f"   cd /path/to/your-project && python3 {MOTOR_DIR / 'main.py'}\n"
+        )
+        sys.exit(1)
+
     config = KernelConfig.from_env(cwd=cwd, mock=args.mock)
     runner = EngineRunner(cwd=cwd, config=config)
     asyncio.run(runner.run())
+
+
+def _is_motor_directory(cwd: Path) -> bool:
+    """True if cwd is the motor's own directory (or inside it).
+
+    Running the project pipeline here is exactly what produced the historical
+    duplicate-commit / duplicate-CHANGELOG spam in this repository's own git
+    history: the motor wrote generated-project artifacts into itself.
+    """
+    cwd_resolved = cwd.resolve()
+    return cwd_resolved == MOTOR_DIR or MOTOR_DIR in cwd_resolved.parents
+
 
 if __name__ == "__main__":
     main()

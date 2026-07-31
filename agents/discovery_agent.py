@@ -56,13 +56,18 @@ class DiscoveryAgent(BaseAgentSDK):
         risk_flags = [f"{f['file']}:{f['line']} -> {f['match']}" for f in findings]
         secret_status = "FLAGGED" if findings else "CLEAN"
 
-        # Test count
+        # Test count: count actual `def test_*` functions, not a made-up
+        # per-file multiplier — a snapshot that fabricates numbers defeats the
+        # entire point of "surveying" an existing codebase.
         test_files = list(project_root.glob("**/test_*.py")) + list(project_root.glob("**/*_test.py"))
-        test_count = len(test_files) * 3 if test_files else 0
+        test_count = self._count_test_functions(test_files)
 
         # Deployment
         has_docker = (project_root / "Dockerfile").exists() or (project_root / "docker-compose.yml").exists()
         has_ci = (project_root / ".github").exists() or (project_root / ".gitlab-ci.yml").exists()
+
+        dep_count = self._count_dependencies(project_root)
+        missing_tests = [] if test_files else ["No test_*.py / *_test.py files found anywhere in the project."]
 
         inferred = [
             InferredRequirement(
@@ -78,9 +83,16 @@ class DiscoveryAgent(BaseAgentSDK):
             project_path=str(project_root.resolve()),
             stack=StackDetails(languages=languages or ["python"], frameworks=frameworks or ["standard"], databases=databases),
             architecture="monolith",
-            dependencies=DependencyDetails(count=10, outdated=1, has_lockfile=(project_root / "poetry.lock").exists() or (project_root / "package-lock.json").exists()),
+            dependencies=DependencyDetails(
+                count=dep_count,
+                # "outdated" would require querying PyPI/npm for latest versions —
+                # Discovery deliberately does no network access, so we report 0
+                # (unknown) rather than a plausible-looking made-up number.
+                outdated=0,
+                has_lockfile=(project_root / "poetry.lock").exists() or (project_root / "package-lock.json").exists(),
+            ),
             security=SecurityDetails(risk_flags=risk_flags, secret_scan_status=secret_status),
-            technical_debt=TechDebtDetails(missing_tests=["src/admin.py"] if not test_files else [], no_type_hints=False),
+            technical_debt=TechDebtDetails(missing_tests=missing_tests, no_type_hints=False),
             test_quality=TestQualityDetails(existing_tests_count=test_count, structural_only=False),
             deployment=DeploymentDetails(has_dockerfile=has_docker, has_ci_config=has_ci),
             inferred_requirements=inferred
@@ -96,3 +108,39 @@ class DiscoveryAgent(BaseAgentSDK):
             correlation_id="discovery-init"
         )
         return snapshot
+
+    @staticmethod
+    def _count_test_functions(test_files: list) -> int:
+        count = 0
+        for f in test_files:
+            try:
+                content = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for line in content.splitlines():
+                if line.strip().startswith("def test_") or line.strip().startswith("async def test_"):
+                    count += 1
+        return count
+
+    @staticmethod
+    def _count_dependencies(project_root: Path) -> int:
+        """Count real declared dependencies instead of reporting a fabricated number."""
+        count = 0
+
+        req_file = project_root / "requirements.txt"
+        if req_file.exists():
+            for line in req_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    count += 1
+
+        package_json = project_root / "package.json"
+        if package_json.exists():
+            try:
+                import json
+                data = json.loads(package_json.read_text(encoding="utf-8", errors="ignore"))
+                count += len(data.get("dependencies", {})) + len(data.get("devDependencies", {}))
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        return count
