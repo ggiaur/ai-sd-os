@@ -4,9 +4,11 @@ from typing import Dict, Any, Optional
 from sdk.base_agent import BaseAgentSDK
 from kernel.event_bus.events import Event, EventType
 from contracts.work_package import WorkPackage
-from sdk.model_selector import select_model_for_attempt
+from sdk.model_selector import select_model_for_attempt, is_simple_work_package
+from lessons.aggregator import LessonsAggregator
 
 CODE_FENCE_RE = re.compile(r"```(?:python)?\s*\n(.*?)```", re.DOTALL)
+MOTOR_DIR = Path(__file__).parent.parent
 
 class DeveloperAgent(BaseAgentSDK):
     """Implements src/ against acceptance tests that ArchitectAgent already wrote.
@@ -80,6 +82,16 @@ class DeveloperAgent(BaseAgentSDK):
         project_root = Path(payload.get("project_root", "."))
         wp = WorkPackage.model_validate(wp_dict)
 
+        # If this WorkPackage LOOKED simple (would have run on light_model)
+        # but its first attempt just failed, that's a real, evidenced
+        # misjudgment of sdk/model_selector.py's heuristic — record it for
+        # human review rather than silently retrying and losing the signal.
+        # Per the constitution (kernel changes always need human review), this
+        # NEVER auto-tunes the heuristic — it only builds the evidence trail
+        # a human (or I, when asked) would use to decide whether to.
+        if retry_count == 0 and self.light_model and is_simple_work_package(wp):
+            self._log_model_selection_misjudgment(wp, project_root)
+
         # payload's retry_count = number of PRIOR failed attempts; the attempt
         # about to run is one past that (0 = first try, so a first retry
         # after payload retry_count=0 is attempt index 1) — this must
@@ -99,6 +111,22 @@ class DeveloperAgent(BaseAgentSDK):
                 "retry_count": retry_count + 1
             },
             correlation_id=event.correlation_id
+        )
+
+    @staticmethod
+    def _log_model_selection_misjudgment(wp: WorkPackage, project_root: Path) -> None:
+        aggregator = LessonsAggregator(motor_dir=MOTOR_DIR)
+        aggregator.add_lesson(
+            pattern="light_model misjudged a WorkPackage as simple",
+            project_sprint=f"{project_root.name} / {wp.sprint_id} / {wp.id}",
+            suggested_action=(
+                "This WorkPackage matched is_simple_work_package() (<=1 task, "
+                "short description) and ran on light_model, but its first "
+                "attempt failed verification. If this pattern recurs, tighten "
+                "SIMPLE_TASK_COUNT_THRESHOLD / SIMPLE_DESCRIPTION_LENGTH_THRESHOLD "
+                "in sdk/model_selector.py — but only after a human reviews "
+                "whether it's actually the heuristic's fault, not something else."
+            ),
         )
 
     async def _generate_implementation(
