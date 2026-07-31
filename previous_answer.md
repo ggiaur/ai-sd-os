@@ -1,53 +1,126 @@
-# Válasz: rotáció + Claude CLI kérdés
+# A 3 provider részletesen — mikor melyiket, miért
 
-## 1. A rotáció mostantól minden frissítésnél garantált
+Előbb egy státusz: **commitoltam és push-oltam a motor repóját GitHubra**
+(`ce40f9a`), és beépítettem az automatikus push-ot a `GitDriver`-be minden
+projekthez, amit a motor kezel (nem csak a motor saját repójához) — ez
+mostantól minden sikeres sprint után lefut, ha van beállított `origin`
+remote. A `previous_answer.md` mostantól garantáltan a motor saját
+`write_answer()` függvényén keresztül rotálódik, és az időbélyeg mostantól
+GMT+2-ben van (nem a szerver UTC idejében).
 
-Igazad van, eddig kézzel másoltam a `previous_answer.md`-t, ami hibázható.
-Mostantól minden egyes alkalommal, amikor válaszolok, ténylegesen a motor
-saját `kernel/system/answer_log.py::write_answer()` függvényét hívom meg (nem
-csak kézzel írom a fájlt) — ez garantáltan és automatikusan végzi a rotációt
-(régi `answer.md` → `previous_answer.md`, majd az új tartalom + időbélyeg).
-Ez már be van építve a motorba (a pipeline saját BLOCKED/DONE kimenetei is
-ezt használják), mostantól a saját válaszaimhoz is ezt hívom, nem külön utat.
+## Mi a "provider" egyáltalán?
 
-## 2. A kérdésed: ne a motor Python/Anthropic API helyett a Claude Code CLI-t használja?
+A motor `AIProvider` interfésze (`sdk/provider_adapter.py`) egy csere-
+szabvány: bármi implementálhatja, ami tud `generate()` (kódot írni),
+`review()` (kódot ellenőrizni), `analyze()` (elemezni) és `embed()`
+(vektorizálni). A `DeveloperAgent`/`TestRunner`/stb. sosem tudja, ÉPPEN
+melyik implementáció fut mögötte — ez teszi lehetővé, hogy projektenként
+más-más "motort" válassz a tényleges munkához.
 
-**Rövid válasz: igen, jó irány, de kiegészítésként, nem lecserélésként.**
+## 1. `MockProviderAdapter` — amit ma, teszteléshez használunk
 
-Jelenleg a `sdk/provider_adapter.py::AnthropicAdapter` egyetlen, egylövéses
-API-hívást csinál (`messages.create`) — a modell egy szöveges promptra egy
-szöveges választ ad, amit regex-szel szedünk szét kódra. Ez gyenge: nincs
-fájlrendszer-hozzáférése, nem tud tesztet futtatni, nem tud iterálni,
-nem lát kontextust a projektről.
+**Mi ez:** nincs mögötte semmilyen valódi AI. Egy Python regex kiolvassa a
+promptból, milyen függvényt kell írni és mit kell visszaadnia, és
+begépeli — determinisztikus, 0 másodperc, 0 Ft, nincs internet vagy API
+kulcs szükséges hozzá.
 
-Ezzel szemben a **Claude Code CLI** (amit most is használsz velem) egy
-teljes, több-lépéses ágens: fájlokat olvas/ír, bash-t futtat, teszteket
-indít, iterál a saját hibáin — pont az, amit egy "DeveloperAgent"-nek
-csinálnia KELLENE, nem csak egy darab kódot kiköpnie.
+**Előny:**
+- **Villámgyors és ingyenes** — ezért fut le a teljes 66 tesztes suite 4
+  másodperc alatt, API kulcs nélkül. Ez teszi lehetővé, hogy a CI (GitHub
+  Actions) minden push-nál újra tudja futtatni az egészet, ingyen.
+- **Determinisztikus** — mindig ugyanazt adja ugyanarra a bemenetre, ezért
+  lehet rá red/green regressziós tesztet írni (pl.
+  `test_verification_is_honest.py`), ami MINDIG ugyanúgy fut le, sosem
+  "néha véletlenül máshogy viselkedik az LLM".
 
-**Fontos:** ezt érdemes egy ÚJ, cserélhető `ClaudeCodeCLIAdapter`-ként
-hozzáadni a meglévő `AIProvider` interfészhez (ami már ma is
-Mock/Anthropic/OpenAI-t támogat felcserélhetően) — NEM kell kidobni a
-Python kernel/state machine/HITL-gate/ledger réteget. Az az OS-réteg (a
-motor "operating system" jellege: audit, jóváhagyási kapuk, állapotgép) az
-érték, amit a motor ad — a kódgenerálás csak egy csere-alkatrész benne.
-Ez egyébként már szerepel a README roadmap-jában (`CAPABILITY_REGISTRY.yaml`
-"ClaudeCodeCLI" mint elsődleges code_generation provider) — csak eddig nem
-volt implementálva.
+**Hátrány:** **nem valódi AI** — nem tud semmit, amit nem kódoltam bele
+explicit szabályként. Éles projekten, valódi funkcióhoz **használhatatlan**,
+csak fejlesztői/teszt célra való.
 
-**Trade-off, amit tudnod kell:** a CLI-alapú ágens lassabb és drágább
-work-package-enként (egy teljes agentic session indul minden taskhoz), és
-nehezebb determinisztikusan tesztelni (a `MockProviderAdapter` mai gyors,
-API-kulcs nélküli teszt-útja nem triviálisan helyettesíthető egy valódi CLI
-hívással). Javaslat: tartsuk meg mindhárom adaptert választhatóként
-(`Mock` gyors/determinisztikus teszteléshez, `Anthropic` egyszerű/gyors
-API-hívásokhoz, `ClaudeCodeCLI` komplex, több fájlt érintő munkákhoz), és a
-`KernelConfig`-ban legyen választható, melyiket használja egy adott projekt.
+**Mikor ezt:** kizárólag a motor SAJÁT tesztjeihez, és amikor ki akarod
+próbálni a pipeline vezérlését (állapotgép, HITL kapuk, git-flow) anélkül,
+hogy AI-hívásokért fizetnél.
 
-**Szeretnéd, hogy megcsináljam a `ClaudeCodeCLIAdapter`-t?** Ha igen, jelezd
-és nekiállok — becslésem szerint ez egy közepes méretű, jól körülhatárolható
-bővítés (új adapter osztály + `KernelConfig` provider-választás + CLI-hívás
-subprocess-en keresztül, nem-interaktív módban).
+## 2. `AnthropicAdapter` — ma is létezik, de gyenge codegen-módban
+
+**Mi ez:** egyetlen, "egylövéses" hívás a Claude API-nak
+(`anthropic.AsyncAnthropic().messages.create()`). Küldünk egy szöveges
+promptot, kapunk egy szöveges választ, amiből regex-szel kiszedjük a kódot.
+
+**Előny:**
+- **Egyszerű, gyors, olcsó** — egyetlen API-hívás work package-enként, nincs
+  agentic loop overhead, alacsony latencia és token-fogyasztás.
+- **Valódi AI** — ténylegesen a Claude modell dönt a kódról, nem egy fix
+  szabály.
+- **Könnyen skálázható** — sok kis work package-et párhuzamosan is el lehet
+  intézni (a swarm-orchestrator pont erre való).
+
+**Hátrány — ez a lényeg, amire rákérdeztél:**
+- **Nincs fájlrendszer-hozzáférése.** Nem tudja megnézni a projekt többi
+  fájlját, a meglévő kódstílust, a függőségeket — csak azt látja, amit a
+  promptba beírunk neki kézzel.
+- **Nem tud tesztet futtatni és a saját hibájából tanulni EGY híváson
+  belül.** Ha rossz kódot ír, azt csak a MI `TestRunner`-ünk veszi észre
+  utólag (ez működik, a retry-loop megoldja), de a modell maga nem lát
+  visszajelzést menet közben — "vakon" ír egy próbálkozást.
+- **Egy work package = egy fájl, egyszerű esetekre jó.** Ha egy funkció
+  több fájlt érint (pl. backend endpoint + frontend hívás + migráció),
+  ez az adapter nem tudja ezt egyben, koherensen megoldani — külön
+  hívásokra kellene szétszabdalni, amiket nekünk kellene manuálisan
+  összehangolni.
+
+**Mikor ezt:** kis, jól körülhatárolt, egyfájlos feladatokhoz, ahol a
+formális `SPEC_FORMAL`/`WorkPackage` már eleve minden szükséges infót
+tartalmaz, és nincs szükség arra, hogy a modell "körülnézzen" a projektben.
+
+## 3. `ClaudeCodeCLIAdapter` — amit javasoltam, MÉG NINCS megcsinálva
+
+**Mi lenne ez:** a motor a `claude` CLI-t hívná meg subprocess-ként,
+nem-interaktív módban (pl. `claude -p "<feladat leírása>" --output-format
+json` jellegű hívással), ugyanazzal az agentic loop-pal, amit MOST is
+használsz velem beszélgetve.
+
+**Előny — miért különb, mint az #2:**
+- **Fájlrendszer-hozzáférése van.** Ténylegesen be tudja olvasni a projekt
+  meglévő kódját, stílusát, függőségeit, mielőtt írna — nem "vakon" dolgozik.
+- **Tud iterálni EGY feladaton belül.** Meg tudja írni a kódot, le tudja
+  futtatni rá a tesztet, ha bukik, saját maga javítja — mindezt egyetlen
+  work package-en belül, mielőtt visszaadná az irányítást a mi
+  `TestRunner`-ünknek. Ez ELVILEG kevesebb retry-kört jelentene a mi
+  pipeline-unk szintjén, mert a hibák nagy részét a CLI már saját magában
+  kiszűri.
+- **Több fájlt érintő, komplex feladatokra alkalmas** — pont az, amire a
+  #2-es adapter NEM jó.
+
+**Hátrány:**
+- **Lassabb és drágább work package-enként** — egy teljes agentic session
+  (több tool-hívás, több oda-vissza a modellel) drágább és lassabb, mint
+  egyetlen API-hívás. Egy triviális, egysoros funkcióhoz ez túlzás lenne.
+- **Nehezebb determinisztikusan tesztelni** — a motor SAJÁT tesztjeihez
+  (a 66-ból amit most futtatunk) ez nem helyettesítené a Mock-ot, mert
+  minden CLI-hívás valódi, nem-determinisztikus AI-választ adna, API
+  kulcsot igényelne, és lassítaná a CI-t. A Mock ezért MINDENKÉPP maradna,
+  csak MÁSRA (a motor saját tesztelésére), nem az éles kódgenerálásra.
+- **Process-kezelési komplexitás** — subprocess indítás, timeout-kezelés,
+  jogosultsági módok (permission mode) beállítása, kimenet parse-olása —
+  ez tényleges implementációs munka, nem triviális "csak hívjuk meg".
+
+**Mikor ezt:** komplex, több fájlt érintő, valódi projekt-kontextust igénylő
+munkákhoz — pontosan az, amit a webarchívumon vagy bármilyen éles
+projekten csinálnál, ha egyszer tényleg rááengeded a motort.
+
+## Az ajánlásom lényege
+
+A három NEM egymást kizáró, hanem **egymást kiegészítő** eszköz, projektenként
+és feladatonként választható (`KernelConfig`-ban egy `provider` mező):
+- `Mock` → csak a motor saját tesztjeihez, sosem éles munkához.
+- `Anthropic` → gyors, olcsó, kis egyfájlos feladatokhoz.
+- `ClaudeCodeCLI` → komplex, több fájlt érintő, valódi projekt-kontextust
+  igénylő munkákhoz (ez lenne az, amit egy éles projektnél, pl. a
+  webarchívumnál használnál).
+
+**Ha szeretnéd, hogy megcsináljam a `ClaudeCodeCLIAdapter`-t, szólj — jelezd
+külön, mert ez egy új fejlesztési kör lenne, nem ráértő "unatkozom" munka.**
 
 ---
-_Generálva: 2026-07-31 05:42:48 +0000_
+_Generálva: 2026-07-31 07:50:24 +0200_

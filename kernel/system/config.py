@@ -13,6 +13,10 @@ class KernelConfig:
     api_key: Optional[str] = None
     default_timeout_minutes: int = 30
     require_human_gates: bool = True
+    # Which AIProvider backs codegen/review when not in mock_mode:
+    # "anthropic" (default, one-shot API call) or "claude_code_cli"
+    # (file-aware, iterative — shells out to the `claude` CLI).
+    provider: str = "anthropic"
 
     @classmethod
     def from_env(cls, cwd: Optional[Path] = None, mock: bool = False) -> "KernelConfig":
@@ -28,4 +32,5 @@ class KernelConfig:
             mock_mode=mock or (os.getenv("MOCK_MODE", "false").lower() == "true"),
             ai_model=os.getenv("AI_MODEL", "claude-sonnet-4-6"),
             api_key=os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY"),
+            provider=os.getenv("AI_SD_OS_PROVIDER", "anthropic"),
         )

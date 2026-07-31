@@ -1,5 +1,8 @@
+import asyncio
 import re
+import subprocess
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
@@ -142,6 +145,97 @@ class AnthropicAdapter(AIProvider):
     async def analyze(self, artifact: str) -> AnalysisResult:
         res = await self.generate(f"Analyze the following artifact:\n{artifact}")
         return AnalysisResult(summary=res, key_findings=[res])
+
+class ClaudeCodeCLIAdapter(AIProvider):
+    """Shells out to the Claude Code CLI itself as the codegen backend.
+
+    Unlike AnthropicAdapter (one text-in/text-out API call, blind to the
+    surrounding project), this gives the "developer" a real, file-aware,
+    iterative coding agent: it can read the project it's working in, run
+    commands, and self-correct — the same kind of session driving this
+    conversation, just invoked non-interactively and scoped to one prompt.
+
+    Model: whatever `model` is set to (default: the engine's configured
+    `KernelConfig.ai_model`, e.g. "claude-sonnet-4-6") — passed straight
+    through to `claude --model`. Nothing is hardcoded here; the model choice
+    lives in one place (KernelConfig), same as every other provider.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        cwd: Path,
+        permission_mode: str = "acceptEdits",
+        timeout_seconds: int = 600,
+    ):
+        self.model = model
+        self.cwd = Path(cwd)
+        self.permission_mode = permission_mode
+        self.timeout_seconds = timeout_seconds
+
+    def _run_cli_sync(self, prompt: str) -> str:
+        cmd = [
+            "claude", "-p", prompt,
+            "--model", self.model,
+            "--output-format", "text",
+            "--permission-mode", self.permission_mode,
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=self.cwd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                "The 'claude' CLI was not found on PATH. Install Claude Code, or "
+                "select a different provider (mock/anthropic) in KernelConfig."
+            ) from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"claude CLI timed out after {self.timeout_seconds}s for this prompt."
+            ) from e
+
+        if result.returncode != 0:
+            raise RuntimeError(f"claude CLI exited {result.returncode}: {result.stderr[:2000]}")
+        return result.stdout
+
+    async def generate(self, prompt: str, context: Optional[dict] = None) -> str:
+        # subprocess.run is blocking; run it off the event loop thread so it
+        # doesn't stall the rest of the async pipeline (HITL prompts, other
+        # agents' event handling) while a CLI session is working.
+        return await asyncio.to_thread(self._run_cli_sync, prompt)
+
+    async def review(self, code: str, criteria: List[str]) -> ReviewResult:
+        # Same deterministic backstop as AnthropicAdapter: secrets and
+        # dangerous execution patterns are never left to an LLM's judgment call.
+        deterministic = _independent_code_review(code)
+        if not deterministic.passed:
+            return deterministic
+
+        prompt = (
+            "You are an INDEPENDENT senior QA engineer reviewing code written by a "
+            "different session. You did not write this code — be skeptical, not "
+            "agreeable. Reply with the single word PASSED only if the code genuinely "
+            "satisfies every criterion below; otherwise reply FAILED followed by a "
+            "one-line reason.\n\n"
+            f"Criteria:\n" + "\n".join(f"- {c}" for c in criteria) + f"\n\nCode:\n{code}"
+        )
+        res = await self.generate(prompt)
+        return ReviewResult(passed="PASSED" in res.upper(), feedback=res)
+
+    async def embed(self, text: str) -> List[float]:
+        raise NotImplementedError(
+            "ClaudeCodeCLIAdapter does not support embeddings — use AnthropicAdapter "
+            "(or a dedicated embeddings provider) for RAG/search features."
+        )
+
+    async def analyze(self, artifact: str) -> AnalysisResult:
+        res = await self.generate(f"Analyze the following artifact and summarize key findings:\n{artifact}")
+        return AnalysisResult(summary=res, key_findings=[res])
+
 
 class OpenAIAdapter(AIProvider):
     def __init__(self, api_key: str, model: str = "gpt-4o"):

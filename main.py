@@ -26,7 +26,7 @@ from agents.developer_agent import DeveloperAgent
 from runtime.test_runner import TestRunnerAgent
 from runtime.git_driver import GitDriver
 from agents.retrospective_collector import RetrospectiveCollector
-from sdk.provider_adapter import MockProviderAdapter, AnthropicAdapter
+from sdk.provider_adapter import MockProviderAdapter, AnthropicAdapter, ClaudeCodeCLIAdapter
 from kernel.system.answer_log import write_answer
 from kernel.system.version import __version__
 
@@ -38,11 +38,18 @@ class EngineRunner:
         self.ledger = LedgerChain(cwd / ".ai-sd-os" / "ledger" / "chain.json")
         self.bus = EventBus(ledger=self.ledger)
 
-        # Provider setup
-        if config.mock_mode or not config.api_key:
+        # Provider setup: which AIProvider backs generate()/review()/analyze()
+        # for every agent below. mock_mode always wins (deterministic, no API
+        # key needed) — otherwise config.provider picks between a one-shot API
+        # call (anthropic) and a file-aware, iterative CLI session (claude_code_cli).
+        if config.mock_mode:
             self.provider = MockProviderAdapter()
-        else:
+        elif config.provider == "claude_code_cli":
+            self.provider = ClaudeCodeCLIAdapter(model=config.ai_model, cwd=cwd)
+        elif config.api_key:
             self.provider = AnthropicAdapter(api_key=config.api_key, model=config.ai_model)
+        else:
+            self.provider = MockProviderAdapter()
 
         # Initialize HITL Gate Manager & Agents
         self.gate_manager = HITLGateManager(self.bus, auto_approve=config.mock_mode)
