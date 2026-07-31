@@ -1,126 +1,105 @@
-# A 3 provider részletesen — mikor melyiket, miért
+# ClaudeCodeCLIAdapter elkészült + "mi az a provider" — lépésről lépésre
 
-Előbb egy státusz: **commitoltam és push-oltam a motor repóját GitHubra**
-(`ce40f9a`), és beépítettem az automatikus push-ot a `GitDriver`-be minden
-projekthez, amit a motor kezel (nem csak a motor saját repójához) — ez
-mostantól minden sikeres sprint után lefut, ha van beállított `origin`
-remote. A `previous_answer.md` mostantól garantáltan a motor saját
-`write_answer()` függvényén keresztül rotálódik, és az időbélyeg mostantól
-GMT+2-ben van (nem a szerver UTC idejében).
+## Kész: `ClaudeCodeCLIAdapter`
 
-## Mi a "provider" egyáltalán?
+Megvan, `sdk/provider_adapter.py`-ban. **72/72 teszt zöld** (6 új teszt csak
+erre). Fontos biztonsági döntés: a tesztek NEM hívják meg a valódi `claude`
+parancsot — lecseréltem (mock-oltam) a subprocess-hívást, mert egy valódi
+beágyazott Claude Code munkamenet indítása a teszt-suite-ból lassú, pénzbe
+kerülne, és kockázatos lenne (egy agent elindít egy másik agentet a
+tesztfutás közben — ezt tudatosan elkerültem).
 
-A motor `AIProvider` interfésze (`sdk/provider_adapter.py`) egy csere-
-szabvány: bármi implementálhatja, ami tud `generate()` (kódot írni),
-`review()` (kódot ellenőrizni), `analyze()` (elemezni) és `embed()`
-(vektorizálni). A `DeveloperAgent`/`TestRunner`/stb. sosem tudja, ÉPPEN
-melyik implementáció fut mögötte — ez teszi lehetővé, hogy projektenként
-más-más "motort" válassz a tényleges munkához.
+## Milyen modellel futna?
 
-## 1. `MockProviderAdapter` — amit ma, teszteléshez használunk
+Amit a `KernelConfig.ai_model` mond — ma ennek az alapértéke
+`"claude-sonnet-4-6"`. Ez ugyanaz a mező, amit az `AnthropicAdapter` is
+használ, tehát egy helyen állítod be, és mindkét adapter ugyanazt a modellt
+kapja. A CLI-hívás konkrétan így néz ki (a kód ezt rakja össze):
 
-**Mi ez:** nincs mögötte semmilyen valódi AI. Egy Python regex kiolvassa a
-promptból, milyen függvényt kell írni és mit kell visszaadnia, és
-begépeli — determinisztikus, 0 másodperc, 0 Ft, nincs internet vagy API
-kulcs szükséges hozzá.
+```
+claude -p "<a feladat szövege>" --model claude-sonnet-4-6 \
+       --output-format text --permission-mode acceptEdits
+```
 
-**Előny:**
-- **Villámgyors és ingyenes** — ezért fut le a teljes 66 tesztes suite 4
-  másodperc alatt, API kulcs nélkül. Ez teszi lehetővé, hogy a CI (GitHub
-  Actions) minden push-nál újra tudja futtatni az egészet, ingyen.
-- **Determinisztikus** — mindig ugyanazt adja ugyanarra a bemenetre, ezért
-  lehet rá red/green regressziós tesztet írni (pl.
-  `test_verification_is_honest.py`), ami MINDIG ugyanúgy fut le, sosem
-  "néha véletlenül máshogy viselkedik az LLM".
+Ha másik modellt akarsz (pl. Opus egy komplexebb projekthez), csak a
+`KernelConfig.ai_model`-t kell átírni — a `.env`-ben `AI_MODEL=...`
+környezeti változóval, kód módosítása nélkül.
 
-**Hátrány:** **nem valódi AI** — nem tud semmit, amit nem kódoltam bele
-explicit szabályként. Éles projekten, valódi funkcióhoz **használhatatlan**,
-csak fejlesztői/teszt célra való.
+## "Mi az a provider" — most tényleg lépésről lépésre, konkrét kóddal
 
-**Mikor ezt:** kizárólag a motor SAJÁT tesztjeihez, és amikor ki akarod
-próbálni a pipeline vezérlését (állapotgép, HITL kapuk, git-flow) anélkül,
-hogy AI-hívásokért fizetnél.
+**A probléma, amit megold:** ha a `DeveloperAgent` kódjába direktben
+beleírnánk "hívd meg az Anthropic API-t", akkor ha egyszer ki akarnád
+próbálni a Claude CLI-t helyette, át kellene írnod a `DeveloperAgent`
+kódját. Ez rossz — a "ki írja a kódot" döntésnek KÜLÖN kellene lennie
+attól, "hogyan vezetem a sprintet".
 
-## 2. `AnthropicAdapter` — ma is létezik, de gyenge codegen-módban
+**A megoldás: egy közös "szerződés" (interfész).** Az `AIProvider` egy
+Python absztrakt osztály (`sdk/provider_adapter.py`), ami ennyit mond:
+"bármi, ami engem implementál, KÖTELES tudni 4 dolgot: `generate()`,
+`review()`, `embed()`, `analyze()`". Ennyi. Nem mondja meg, HOGYAN — csak
+hogy legyen ilyen nevű függvénye, ami ezt-és-ezt a bemenetet veszi, és
+ezt-és-ezt adja vissza.
 
-**Mi ez:** egyetlen, "egylövéses" hívás a Claude API-nak
-(`anthropic.AsyncAnthropic().messages.create()`). Küldünk egy szöveges
-promptot, kapunk egy szöveges választ, amiből regex-szel kiszedjük a kódot.
+Ma **4 különböző implementáció** létezik ehhez a szerződéshez:
 
-**Előny:**
-- **Egyszerű, gyors, olcsó** — egyetlen API-hívás work package-enként, nincs
-  agentic loop overhead, alacsony latencia és token-fogyasztás.
-- **Valódi AI** — ténylegesen a Claude modell dönt a kódról, nem egy fix
-  szabály.
-- **Könnyen skálázható** — sok kis work package-et párhuzamosan is el lehet
-  intézni (a swarm-orchestrator pont erre való).
+| Implementáció | `generate()` mit csinál valójában |
+|---|---|
+| `MockProviderAdapter` | Regex-szel kiolvassa a promptból, mit kell visszaadni, begépeli. 0 mp. |
+| `AnthropicAdapter` | Egy API-hívás a `anthropic` Python csomaggal. |
+| `ClaudeCodeCLIAdapter` | Elindítja a `claude` parancssori programot subprocess-ként. |
+| `OpenAIAdapter` | (ma még csak váz, GPT API-t hívna) |
 
-**Hátrány — ez a lényeg, amire rákérdeztél:**
-- **Nincs fájlrendszer-hozzáférése.** Nem tudja megnézni a projekt többi
-  fájlját, a meglévő kódstílust, a függőségeket — csak azt látja, amit a
-  promptba beírunk neki kézzel.
-- **Nem tud tesztet futtatni és a saját hibájából tanulni EGY híváson
-  belül.** Ha rossz kódot ír, azt csak a MI `TestRunner`-ünk veszi észre
-  utólag (ez működik, a retry-loop megoldja), de a modell maga nem lát
-  visszajelzést menet közben — "vakon" ír egy próbálkozást.
-- **Egy work package = egy fájl, egyszerű esetekre jó.** Ha egy funkció
-  több fájlt érint (pl. backend endpoint + frontend hívás + migráció),
-  ez az adapter nem tudja ezt egyben, koherensen megoldani — külön
-  hívásokra kellene szétszabdalni, amiket nekünk kellene manuálisan
-  összehangolni.
+**A lényeg, amit a `DeveloperAgent` kódjában látsz** (`agents/developer_agent.py`):
 
-**Mikor ezt:** kis, jól körülhatárolt, egyfájlos feladatokhoz, ahol a
-formális `SPEC_FORMAL`/`WorkPackage` már eleve minden szükséges infót
-tartalmaz, és nincs szükség arra, hogy a modell "körülnézzen" a projektben.
+```python
+response = await self.provider.generate(prompt, context={"work_package_id": wp.id})
+```
 
-## 3. `ClaudeCodeCLIAdapter` — amit javasoltam, MÉG NINCS megcsinálva
+Ez a sor **szó szerint ugyanígy néz ki**, függetlenül attól, hogy melyik
+implementáció fut mögötte. A `DeveloperAgent` sosem írja ki, hogy
+"AnthropicAdapter" vagy "ClaudeCodeCLIAdapter" — csak annyit tud, hogy
+`self.provider`-nek VAN egy `generate()` metódusa, és azt meghívja. Hogy
+`self.provider` ÉPPEN melyik konkrét objektum, azt **máshol, egy helyen**
+dől el — a `main.py`-ban, az `EngineRunner.__init__`-ben:
 
-**Mi lenne ez:** a motor a `claude` CLI-t hívná meg subprocess-ként,
-nem-interaktív módban (pl. `claude -p "<feladat leírása>" --output-format
-json` jellegű hívással), ugyanazzal az agentic loop-pal, amit MOST is
-használsz velem beszélgetve.
+```python
+if config.mock_mode:
+    self.provider = MockProviderAdapter()
+elif config.provider == "claude_code_cli":
+    self.provider = ClaudeCodeCLIAdapter(model=config.ai_model, cwd=cwd)
+elif config.api_key:
+    self.provider = AnthropicAdapter(api_key=config.api_key, model=config.ai_model)
+```
 
-**Előny — miért különb, mint az #2:**
-- **Fájlrendszer-hozzáférése van.** Ténylegesen be tudja olvasni a projekt
-  meglévő kódját, stílusát, függőségeit, mielőtt írna — nem "vakon" dolgozik.
-- **Tud iterálni EGY feladaton belül.** Meg tudja írni a kódot, le tudja
-  futtatni rá a tesztet, ha bukik, saját maga javítja — mindezt egyetlen
-  work package-en belül, mielőtt visszaadná az irányítást a mi
-  `TestRunner`-ünknek. Ez ELVILEG kevesebb retry-kört jelentene a mi
-  pipeline-unk szintjén, mert a hibák nagy részét a CLI már saját magában
-  kiszűri.
-- **Több fájlt érintő, komplex feladatokra alkalmas** — pont az, amire a
-  #2-es adapter NEM jó.
+Ez az egész "provider" dolog **csereszabatosság**. Olyan, mint egy
+villásdugó-szabvány: a `DeveloperAgent` egy konnektor, aminek mindegy, MILYEN
+készülék van bedugva bele (Mock/Anthropic/ClaudeCodeCLI/OpenAI), amíg az a
+készülék illik a szabványba (van neki `generate()`, `review()`, stb.
+metódusa, ami a megfelelő típusú választ adja vissza).
 
-**Hátrány:**
-- **Lassabb és drágább work package-enként** — egy teljes agentic session
-  (több tool-hívás, több oda-vissza a modellel) drágább és lassabb, mint
-  egyetlen API-hívás. Egy triviális, egysoros funkcióhoz ez túlzás lenne.
-- **Nehezebb determinisztikusan tesztelni** — a motor SAJÁT tesztjeihez
-  (a 66-ból amit most futtatunk) ez nem helyettesítené a Mock-ot, mert
-  minden CLI-hívás valódi, nem-determinisztikus AI-választ adna, API
-  kulcsot igényelne, és lassítaná a CI-t. A Mock ezért MINDENKÉPP maradna,
-  csak MÁSRA (a motor saját tesztelésére), nem az éles kódgenerálásra.
-- **Process-kezelési komplexitás** — subprocess indítás, timeout-kezelés,
-  jogosultsági módok (permission mode) beállítása, kimenet parse-olása —
-  ez tényleges implementációs munka, nem triviális "csak hívjuk meg".
+**Miért jó ez neked konkrétan:** amikor most azt kérdezted, "ne CLI-t
+használjon Python helyett" — a válasz az volt, hogy EZ MÁR EGY VÁLASZTÁS,
+nem egy beépített, megváltoztathatatlan tulajdonság. Most, hogy elkészült a
+`ClaudeCodeCLIAdapter`, a `.env`-ben (vagy `KernelConfig`-ban) beállítod:
 
-**Mikor ezt:** komplex, több fájlt érintő, valódi projekt-kontextust igénylő
-munkákhoz — pontosan az, amit a webarchívumon vagy bármilyen éles
-projekten csinálnál, ha egyszer tényleg rááengeded a motort.
+```
+AI_SD_OS_PROVIDER=claude_code_cli
+```
 
-## Az ajánlásom lényege
+...és mostantól minden projekten, amit a motorral futtatsz, a
+`DeveloperAgent`/`TestRunner` review-lépése ténylegesen a Claude Code
+CLI-t hívja a Python API helyett — **a `DeveloperAgent` kódjában egyetlen
+sort sem kellett módosítani ehhez.** Ez a "provider absztrakció" konkrét,
+kézzelfogható haszna.
 
-A három NEM egymást kizáró, hanem **egymást kiegészítő** eszköz, projektenként
-és feladatonként választható (`KernelConfig`-ban egy `provider` mező):
-- `Mock` → csak a motor saját tesztjeihez, sosem éles munkához.
-- `Anthropic` → gyors, olcsó, kis egyfájlos feladatokhoz.
-- `ClaudeCodeCLI` → komplex, több fájlt érintő, valódi projekt-kontextust
-  igénylő munkákhoz (ez lenne az, amit egy éles projektnél, pl. a
-  webarchívumnál használnál).
+## Mikor melyiket válaszd — most már a konfigurálás is megvan
 
-**Ha szeretnéd, hogy megcsináljam a `ClaudeCodeCLIAdapter`-t, szólj — jelezd
-külön, mert ez egy új fejlesztési kör lenne, nem ráértő "unatkozom" munka.**
+- `MOCK_MODE=true` → mindig `Mock`, a motor saját tesztjeihez.
+- `AI_SD_OS_PROVIDER` nincs beállítva (vagy `anthropic`) + van
+  `ANTHROPIC_API_KEY` → `AnthropicAdapter` (gyors, egyszerű feladatokhoz).
+- `AI_SD_OS_PROVIDER=claude_code_cli` → `ClaudeCodeCLIAdapter` (komplex,
+  több fájlt érintő, projekt-kontextust igénylő munkákhoz — pl. a
+  webarchívum-szintű projektekhez, ha egyszer arra rááengeded a motort).
 
 ---
-_Generálva: 2026-07-31 07:50:24 +0200_
+_Generálva: 2026-07-31 07:59:42 +0200_
