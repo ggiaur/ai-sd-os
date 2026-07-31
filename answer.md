@@ -1,79 +1,97 @@
-# Igazad volt — Sonnet 4.6 valóban létezik. Javítva, profibb megoldással.
+# 4 kérdésed — sorban
 
-## Amit rosszul csináltam, és amit utánanéztem
+## 1. "Ez legyen a te mérlegelésed és a tesztek finomítsák" — megcsináltam
 
-Korábban **hibásan** "javítottam" az `ai_model` alapértékét
-`"claude-sonnet-5"`-re, mert azt hittem, a `"claude-sonnet-4-6"` egy
-elgépelés vagy nem létező modell. Tévedtem — utánanéztem hivatalos
-forrásokból (Anthropic hivatalos bejelentés, AWS Bedrock model card), és:
+A `DeveloperAgent` mostantól, ha egy WorkPackage-et a heurisztika
+"egyszerűnek" ítélt (Haiku-ra küldte), de az ELSŐ próbálkozás elbukott a
+verifikáción, ezt **rögzíti** a motor már meglévő "lessons learned"
+rendszerében (`lessons/lessons_learned.yaml`, `status:
+PENDING_HUMAN_REVIEW`) — pont úgy, ahogy a motor Alkotmánya előírja: a
+kernel-viselkedést (itt: a `sdk/model_selector.py` küszöbértékeit) **soha
+nem hangolja automatikusan**, csak bizonyítékot gyűjt, amit egy ember (vagy
+én, ha rákérdezel) tud felhasználni a döntéshez. **93/93 teszt zöld**,
+2 új teszt igazolja, hogy ez a napló-bejegyzés ténylegesen megtörténik,
+commitolva/pusholva (`c7d784a`).
 
-- **Sonnet 4.6 valóban létezik**, 2026. február 17-én jelent meg, a valós
-  API modell-azonosítója szó szerint `claude-sonnet-4-6`, ára $3/$15
-  (input/output, millió tokenenként).
-- **Sonnet 5** ennél KÉSŐBB, 2026. június 30-án jelent meg — jelenleg
-  bevezető áron $2/$10 (2026.08.31-ig), utána $3/$15-re emelkedik.
-- **Haiku 4.5**: `claude-haiku-4-5-20251001`, $1/$5 — a legolcsóbb.
+Vagyis: ha rendszeresen rossz döntéseket látsz, nem kell "szólnod" — a motor
+saját maga gyűjti a bizonyítékot, és ha átnézed a `lessons_learned.yaml`-t
+(vagy megkérsz, hogy nézzem át), onnantól tudatosan finomíthatjuk a
+küszöböt, nem találgatásból.
 
-Vagyis a sorrend időben: **Haiku 4.5 → Sonnet 4.6 → Sonnet 5**, és jelenleg
-a Sonnet 5 bevezető ára miatt NEM egyértelműen drágább, mint a 4.6 — ez
-augusztus 31. után változik. Ez pontosan mutatja, miért veszélyes
-hardcode-olni: az árstruktúra és az elérhető modellek listája HÓNAPRÓL
-HÓNAPRA változik.
+## 2. Mikor indulhatunk másik projekten? — Fontos tisztázás előbb
 
-**Forrás:**
-- [Introducing Sonnet 4.6 — Anthropic hivatalos bejelentés](https://www.anthropic.com/news/claude-sonnet-4-6)
-- [Claude Sonnet 4.6 — AWS Bedrock model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-4-6.html)
-- [Claude Sonnet 5 pricing — OpenRouter](https://openrouter.ai/anthropic/claude-sonnet-5)
-- [Claude Haiku 4.5 — Anthropic hivatalos oldal](https://www.anthropic.com/claude/haiku)
-- [Model IDs and versioning — Claude Platform Docs](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions)
+**Két teljesen különböző üzemmódról van szó, és eddig csak az egyiket
+csináltuk:**
 
-## A profi megoldás, amit építettem: ESCALATION, nem találgatás
+- **A) Amit EDDIG csináltunk (ezen a beszélgetésen keresztül):** ÉN,
+  Claude Code, közvetlenül dolgoztam a motor kódján — olvastam, írtam,
+  teszteltem, commitoltam, veled egyeztetve minden lépésnél. Ez NEM az
+  ai-sd-os motor pipeline-ja — ez simán "veled dolgozom, mint fejlesztő".
+- **B) Az ai-sd-os motor ÖNÁLLÓ pipeline-ja** (`main.py`): ez egy
+  automatizált rendszer, ami emberi jóváhagyási kapukkal (HITL gates) fut,
+  saját ágensekkel generál kódot, saját maga futtatja a teszteket és
+  commitol/pushol — **ezt még sosem próbáltuk ki éles (nem mock) módban.**
 
-A korábbi megközelítésem (leírás-hossz alapján megbecsülni, "ez bonyolult
-lesz, vigyük Sonnet-re") pontosan az volt, amit kritizáltál — egy találgatás,
-amit nem lehet megbízhatóan "felmérni" előre. Az iparágban erre a valódi,
-bevált mintázat: **escalation-on-failure** — csak akkor lépünk drágább
-modellre, ha a olcsóbb TÉNYLEGESEN, bizonyítottan elbukott, nem mert
-"úgy néz ki, hogy bonyolult lesz."
+A B) mód értéke ott van, amikor **felügyelet nélkül, autonóm módon** akarod,
+hogy dolgozzon (pl. "fusson éjszaka, reggelre legyen kész X"). Ha viszont
+most, veled beszélgetve akarsz egy funkciót megcsináltatni egy projekten —
+azt egyszerűen ÉN direktben megcsinálom, ahogy eddig is, gyorsabb és
+átláthatóbb, mint a pipeline-on keresztül.
 
-Az új, 3-szintű létra (`sdk/model_selector.py`):
+**Javaslatom az induláshoz, ha a B) módot (önálló pipeline) akarod
+kipróbálni:**
+1. NE a webarchívumon kezdjük — az egy komplex, valós, értékes projekt.
+   Válasszunk egy kis, alacsony téttel járó, jól körülhatárolt feladatot
+   (akár egy vadonatúj, üres projekt, akár a webarchívum egy triviális,
+   elszigetelt részfeladata).
+2. Először **csak a Discovery/SPEC szakaszig** fusson (`auto_approve=False`,
+   valós API-kulccsal, de a Sprint Planning kapunál MEGÁLLUNK, átnézzük,
+   mit tervez, mielőtt bármit írna).
+3. Csak ez után engedjük tovább a fejlesztési fázisba.
 
-1. **1. próbálkozás, egyszerű feladat** (1 rövid task) → **Haiku 4.5**
-2. **1. próbálkozás, összetettebb feladat, VAGY bármelyik köztes retry** →
-   **Sonnet 4.6** (ez a valódi munkaló modell, nem a Haiku és nem a Sonnet 5)
-3. **CSAK az utolsó retry**, mielőtt a pipeline feladná → **Sonnet 5** — és
-   KIZÁRÓLAG akkor, ha a Sonnet 4.6 már bizonyítottan, ismételten elbukott
-   ugyanazon a feladaton.
+## 3. A könyvtár-kérdés — nem számít, amit gondoltál
 
-Ez pontosan azt csinálja, amit írtál: "sonnet 5 csak bonyolult
-feladatoknál, ahol a 4.6 nem boldogul" — de a "nem boldogul"-t TÉNYLEGES,
-mért kudarc dönti el (a mi saját, kétrétegű verifikációnk: pytest + független
-review — lásd korábbi köröket), nem egy előzetes találgatás.
+**Nem kell átjelentkezned semmilyen mappába, és nekem sem kell onnan
+indulnom.** Ennek az oka egyszerű: a motor `main.py`-ja azt nézi, hogy MELYIK
+KÖNYVTÁRBAN FUT ÉPPEN A PARANCS (a `cd project && python3 main.py`
+mintában) — ez teljesen független attól, hogy a Claude Code munkamenetem
+honnan indult. Bizonyíték: ebben a beszélgetésben már dolgoztam a
+webarchívumon, a demo-project-en, az existing-demo-n — mindegyik más
+könyvtár, anélkül hogy újra kellett volna indítanod engem onnan. Egyszerűen
+`cd`-elek oda, ahova kell, parancsonként.
 
-## A másik kérésed: mi van, ha egy modell megszűnik?
+Az egyetlen dolog, aminek ELVILEG jelentősége LEHETNE: ha a Claude Code
+saját fájlhozzáférési engedélyei szigorúan a indítási könyvtárra lennének
+korlátozva. De ezt már cáfolta a gyakorlat — hozzáfértem a
+`/srv/projects/webarchivum`-hoz simán, pedig a munkamenet nem onnan indult.
+**Tehát: nem kell átjelentkezned, nyugodtan maradhatsz ott, ahol most vagy.**
 
-**`sdk/model_validator.py`** — a motor induláskor (nem minden work
-package-nél, csak egyszer, hogy ne legyen felesleges API-hívás-pazarlás)
-ténylegesen lekérdezi az Anthropic API-tól (`client.models.retrieve(model_id)`)
-mindhárom konfigurált modellt (light/ai/escalation), és ha valamelyik
-elavult/átnevezett/nem létezik, **hangosan figyelmeztet**, ahelyett hogy
-csendben, egy zavaros API-hibával futna el a pipeline közepén. Ez nem
-automatikusan cserél le semmit — az automatikus "találjunk ki egy pótlást"
-kockázatosabb lenne, mint egy világos figyelmeztetés + link a dokumentációra.
+## 4. Gemini (vagy más provider) integrálása kvóta-kiesés esetére
 
-**91/91 teszt zöld** (17 új/frissített teszt csak erre a körre — az
-escalation-létra minden ágára, plusz egy hamisított Anthropic-klienssel a
-validátorra, hogy sose hívjunk valódi API-t a teszteléshez). Élesben
-leellenőrizve, commitolva és pusholva (`f0c0554`).
+**Igen, technikailag egyszerű** — az `AIProvider` interfész pont erre való
+(lásd a korábbi részletes magyarázatot arról, "mi az a provider"). Egy
+`GeminiAdapter` ugyanúgy megírható, mint az `OpenAIAdapter` (ami ma még csak
+váz, de a minta megvan).
 
-## Amire figyelmeztetlek
+**Amit érdemes hozzá építeni, ha csináljuk:** nem elég egy önálló
+`GeminiAdapter` — kell egy **`FallbackProviderAdapter`** wrapper is, ami:
+1. Megpróbálja a fő providert (pl. Anthropic).
+2. Ha kvóta/rate-limit hibát kap (nem akármilyen hibát — konkrétan
+   erőforrás-kimerülést), automatikusan átvált a másodlagos providerre
+   (pl. Gemini).
+3. Ezt logolja (és a fenti lessons-learned mechanizmussal jelzi, hogy
+   fallback történt — átláthatóság, nem csendes csere).
 
-Ez a rendszer NEM garantálja, hogy sose kell kézzel beavatkoznod — ha
-Anthropic hónapok múlva kivezeti a Sonnet 4.6-ot, a validátor jelezni fogja
-(hangos warning induláskor), de nem fog magától új modellt választani
-helyette. Ez tudatos döntés: egy automatikusan "kitalált" modellcsere
-kockázatosabb lenne, mint hogy te nézd át és döntsd el kézzel, a
-`.env`-ben (`AI_MODEL`, `LIGHT_MODEL`, `ESCALATION_MODEL`).
+Ez egy VALÓDI, önálló fejlesztési kör lenne (új függőség — Gemini SDK —,
+API-kulcs-kezelés, hibatípus-felismerés kvóta vs. egyéb hiba
+megkülönböztetésére). Nincs itt Gemini API-kulcsom, hogy éles tesztet
+futtassak rajta, de mock-olt teszteléssel (ahogy a ClaudeCodeCLIAdapter-nél
+is tettem) meg tudom írni és bizonyítani, hogy a fallback-logika helyesen
+működik.
+
+**Kérdés hozzád:** ez most jöjjön, vagy előbb a 2. pontban javasolt "kis,
+alacsony téttel járó éles próba" a pipeline-nal? Mindkettő értelmes
+következő lépés, de mindkettőt egyszerre nem érdemes csinálni.
 
 ---
-_Generálva: 2026-07-31 08:25:41 +0200_
+_Generálva: 2026-07-31 08:31:36 +0200_
